@@ -1,6 +1,7 @@
 package com.hddev.byahero.ui.components
 
 import android.graphics.BitmapFactory
+import android.util.LruCache
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -33,7 +34,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -49,7 +49,6 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import android.util.LruCache
 import com.google.android.gms.maps.model.LatLng
 import com.hddev.byahero.data.NearbySpot
 import com.hddev.byahero.ui.theme.ByaheroBlack
@@ -94,20 +93,18 @@ private object MapTileCache {
 }
 
 private suspend fun fetchTileBitmap(z: Int, x: Int, y: Int): ImageBitmap? = withContext(Dispatchers.IO) {
-    val sub = arrayOf("a", "b", "c", "d")[(x + y).and(3)]
     val urls = listOf(
-        "https://$sub.basemaps.cartocdn.com/rastertiles/voyager/$z/$x/$y@2x.png",
-        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/$z/$y/$x",
-        "https://tile.openstreetmap.org/$z/$x/$y.png"
+        "https://tile.openstreetmap.org/$z/$x/$y.png",
+        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/$z/$y/$x"
     )
     for (urlStr in urls) {
         var conn: HttpURLConnection? = null
         try {
             conn = (URL(urlStr).openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
-                connectTimeout = 4500
-                readTimeout = 4500
-                setRequestProperty("User-Agent", "BYAHERO-Android/1.0")
+                connectTimeout = 5000
+                readTimeout = 5000
+                setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) BYAHERO-Navigation/1.0")
                 setRequestProperty("Accept", "image/png,image/*")
             }
             if (conn.responseCode == 200) {
@@ -117,7 +114,6 @@ private suspend fun fetchTileBitmap(z: Int, x: Int, y: Int): ImageBitmap? = with
                 }
             }
         } catch (_: Exception) {
-            // Try next tile CDN
         } finally {
             conn?.disconnect()
         }
@@ -181,7 +177,6 @@ fun NativeInteractiveMap(
         }
     }
 
-    // Center smoothly when GPS updates or destination is set
     LaunchedEffect(userLocation, destinationLocation) {
         if (destinationLocation != null) {
             centerLat = (pickupLocation.latitude + destinationLocation.latitude) / 2.0
@@ -213,13 +208,12 @@ fun NativeInteractiveMap(
     val minTy = max(0, floor((centerWorldY - halfH) / tilePx).toInt())
     val maxTy = min(maxTileIdx - 1, floor((centerWorldY + halfH) / tilePx).toInt())
 
-    // Trigger asynchronous tile fetches for currently visible viewport
     LaunchedEffect(zoom, minTx, maxTx, minTy, maxTy, viewSize) {
         if (viewSize.width <= 1 || viewSize.height <= 1) return@LaunchedEffect
         for (ty in minTy..maxTy) {
             for (txRaw in minTx..maxTx) {
                 val tx = ((txRaw % maxTileIdx) + maxTileIdx) % maxTileIdx
-                val key = "$zoom/$tx/$ty"
+                val key = "osm_v2_$zoom/$tx/$ty"
                 if (MapTileCache.get(key) == null && MapTileCache.tryMarkInFlight(key)) {
                     scope.launch {
                         val bmp = fetchTileBitmap(zoom, tx, ty)
@@ -269,12 +263,10 @@ fun NativeInteractiveMap(
             }
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
-            // Read tileRevision so Compose redraws as new street tiles arrive
             val rev = tileRevision
             @Suppress("UNUSED_EXPRESSION")
             rev
 
-            // Subtle architectural street grid visible while tiles stream in
             val gridStep = 64.dp.toPx()
             val offsetX = ((-(centerWorldX % gridStep) + gridStep) % gridStep).toFloat()
             val offsetY = ((-(centerWorldY % gridStep) + gridStep) % gridStep).toFloat()
@@ -289,11 +281,10 @@ fun NativeInteractiveMap(
                 gy += gridStep
             }
 
-            // Draw street map tiles
             for (ty in minTy..maxTy) {
                 for (txRaw in minTx..maxTx) {
                     val tx = ((txRaw % maxTileIdx) + maxTileIdx) % maxTileIdx
-                    val key = "$zoom/$tx/$ty"
+                    val key = "osm_v2_$zoom/$tx/$ty"
                     val bmp = MapTileCache.get(key) ?: continue
                     val left = (txRaw * tilePx - centerWorldX + halfW).roundToInt()
                     val top = (ty * tilePx - centerWorldY + halfH).roundToInt()
@@ -307,7 +298,6 @@ fun NativeInteractiveMap(
                 }
             }
 
-            // Route line between Pickup & Destination
             if (destinationLocation != null) {
                 val p1 = latLngToScreen(pickupLocation)
                 val p2 = latLngToScreen(destinationLocation)
@@ -328,7 +318,6 @@ fun NativeInteractiveMap(
                 )
             }
 
-            // User GPS blue/green beacon
             val gpsPos = latLngToScreen(userLocation)
             drawCircle(
                 color = ByaheroDarkGreen.copy(alpha = 0.18f),
@@ -347,7 +336,6 @@ fun NativeInteractiveMap(
             )
         }
 
-        // Discovered Nearby Spots Floating Pins
         discoveredSpots.take(8).forEach { spot ->
             val pos = latLngToScreen(LatLng(spot.lat, spot.lng))
             if (pos.x > -80f && pos.x < viewSize.width + 80f && pos.y > -40f && pos.y < viewSize.height + 40f) {
@@ -385,7 +373,6 @@ fun NativeInteractiveMap(
             }
         }
 
-        // Pickup Pin
         val pickupScreen = latLngToScreen(pickupLocation)
         Surface(
             modifier = Modifier.offset {
@@ -409,7 +396,6 @@ fun NativeInteractiveMap(
             )
         }
 
-        // Drop-off Pin
         if (destinationLocation != null) {
             val destScreen = latLngToScreen(destinationLocation)
             Surface(
@@ -435,7 +421,6 @@ fun NativeInteractiveMap(
             }
         }
 
-        // Zoom + / - Controls (Bottom-Right)
         Column(
             modifier = Modifier
                 .align(Alignment.BottomEnd)

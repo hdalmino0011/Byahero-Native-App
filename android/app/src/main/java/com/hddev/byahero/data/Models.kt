@@ -27,6 +27,48 @@ enum class RideStatus {
     CANCELLED
 }
 
+enum class PaymentMethodType {
+    CASH,
+    GCASH,
+    CARD
+}
+
+data class SavedPaymentMethod(
+    val id: String,
+    val type: PaymentMethodType,
+    val label: String,
+    val subtitle: String,
+    val accountNumberOrLast4: String = "",
+    val holderName: String = "",
+    val expiry: String = "",
+    val isDefault: Boolean = false
+)
+
+data class FavoriteDestination(
+    val id: String,
+    val label: String,
+    val address: String,
+    val lat: Double,
+    val lng: Double,
+    val ordersCount: Int = 1
+)
+
+data class PromoCodeItem(
+    val code: String,
+    val title: String,
+    val description: String,
+    val discountPercent: Int,
+    val maxDiscountPhp: Double
+)
+
+data class SupportTicketItem(
+    val id: String,
+    val category: String,
+    val message: String,
+    val status: String,
+    val createdAt: String
+)
+
 data class UserProfile(
     val id: String,
     val fullName: String,
@@ -80,7 +122,9 @@ data class ActiveRide(
     val riderName: String? = null,
     val riderPlate: String? = null,
     val createdAtLabel: String = "Just now",
-    val roleContext: String = "passenger"
+    val roleContext: String = "passenger",
+    val paymentMethodLabel: String = "Cash",
+    val promoCode: String? = null
 )
 
 @Serializable

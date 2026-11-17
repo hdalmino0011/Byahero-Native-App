@@ -8,17 +8,21 @@ import {
   Compass,
   History,
   Navigation,
+  Settings,
   Smartphone,
-  User,
 } from 'lucide-react';
 import {
   ActiveMode,
   AppTab,
   DiscoveredPlace,
+  FavoriteDestination,
   LatLngPoint,
   LocationStop,
   MapSelectionTarget,
+  PromoCodeItem,
   RideBooking,
+  SavedPaymentMethod,
+  SettingsSection,
   UserProfile,
   UserRole,
   VehicleType,
@@ -44,7 +48,7 @@ import {BookingPanel} from './components/BookingPanel';
 import {ExploreNearbyPanel} from './components/ExploreNearbyPanel';
 import {OrderHistoryPanel} from './components/OrderHistoryPanel';
 import {RiderDashboardPanel} from './components/RiderDashboardPanel';
-import {AccountPanel} from './components/AccountPanel';
+import {SettingsPanel} from './components/SettingsPanel';
 import {ByaheroLogoMark} from './components/VectorGraphics';
 
 const MAPS_API_KEY = (import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string) || '';
@@ -86,6 +90,8 @@ const SEED_DISPATCH_REQUESTS: RideBooking[] = [
     distanceKm: 6.4,
     durationMins: 19,
     fare: calculateByaheroFare(6.4, 'motorcycle', isTodaySaturday()),
+    paymentMethodType: 'cash',
+    paymentMethodLabel: 'Cash',
     status: 'searching',
     createdAt: new Date().toISOString(),
   },
@@ -108,12 +114,78 @@ const SEED_DISPATCH_REQUESTS: RideBooking[] = [
     distanceKm: 8.2,
     durationMins: 24,
     fare: calculateByaheroFare(8.2, 'taxi', isTodaySaturday()),
+    paymentMethodType: 'gcash',
+    paymentMethodLabel: 'GCash',
     status: 'searching',
     createdAt: new Date().toISOString(),
   },
 ];
 
 const ORDER_HISTORY_STORAGE_KEY = 'byahero_order_history_v1';
+const PAYMENT_METHODS_STORAGE_KEY = 'byahero_payment_methods_v1';
+const FAVORITES_STORAGE_KEY = 'byahero_favorite_destinations_v1';
+const PROMO_STORAGE_KEY = 'byahero_applied_promo_v1';
+
+const DEFAULT_PAYMENT_METHODS: SavedPaymentMethod[] = [
+  {
+    id: 'pm_cash',
+    type: 'cash',
+    label: 'Cash',
+    subtitle: 'Pay rider directly upon arrival',
+    isDefault: true,
+  },
+];
+
+const DEFAULT_FAVORITES: FavoriteDestination[] = [
+  {
+    id: 'fav_1',
+    label: 'SM City Cebu',
+    address: 'North Reclamation Area, Cebu City',
+    lat: 10.3119,
+    lng: 123.9182,
+    ordersCount: 8,
+  },
+  {
+    id: 'fav_2',
+    label: 'IT Park, Lahug',
+    address: 'Cebu IT Park, Apas, Cebu City',
+    lat: 10.3304,
+    lng: 123.9056,
+    ordersCount: 6,
+  },
+  {
+    id: 'fav_3',
+    label: 'Ayala Center Cebu',
+    address: 'Cebu Business Park, Cebu City',
+    lat: 10.3181,
+    lng: 123.9049,
+    ordersCount: 4,
+  },
+];
+
+const AVAILABLE_PROMO_CODES: PromoCodeItem[] = [
+  {
+    code: 'BYAHERO10',
+    title: '10% Off Any Ride',
+    description: 'Save 10% (up to P50) on any BYAHERO Moto or Cab trip.',
+    discountPercent: 10,
+    maxDiscountPhp: 50,
+  },
+  {
+    code: 'SATPROMO',
+    title: 'Saturday 10% Off + 5% Rider Bonus',
+    description: 'Weekend special: 10% passenger discount while riders earn +5% extra.',
+    discountPercent: 10,
+    maxDiscountPhp: 80,
+  },
+  {
+    code: 'FIRST50',
+    title: '15% Welcome Ride Saver',
+    description: 'Enjoy 15% off (up to P50) on your booked destination.',
+    discountPercent: 15,
+    maxDiscountPhp: 50,
+  },
+];
 
 const SEED_ORDER_HISTORY: RideBooking[] = [
   {
@@ -138,6 +210,8 @@ const SEED_ORDER_HISTORY: RideBooking[] = [
     distanceKm: 3.8,
     durationMins: 12,
     fare: calculateByaheroFare(3.8, 'motorcycle', false),
+    paymentMethodType: 'cash',
+    paymentMethodLabel: 'Cash',
     status: 'completed',
     roleContext: 'passenger',
     createdAt: new Date(Date.now() - 1000 * 60 * 60 * 26).toISOString(),
@@ -164,6 +238,8 @@ const SEED_ORDER_HISTORY: RideBooking[] = [
     distanceKm: 13.4,
     durationMins: 32,
     fare: calculateByaheroFare(13.4, 'taxi', true),
+    paymentMethodType: 'gcash',
+    paymentMethodLabel: 'GCash',
     status: 'completed',
     roleContext: 'passenger',
     createdAt: new Date(Date.now() - 1000 * 60 * 60 * 74).toISOString(),
@@ -180,8 +256,9 @@ export default function App() {
 
   const [profile, setProfile] = useState<UserProfile>(INITIAL_PROFILE);
   const [activeTab, setActiveTab] = useState<AppTab>('ride');
+  const [settingsSection, setSettingsSection] =
+    useState<SettingsSection>('account');
 
-  // Location & Route State
   const [userLocation, setUserLocation] = useState<LatLngPoint>(DEFAULT_CENTER);
   const [pickup, setPickup] = useState<LocationStop | null>({
     label: 'Current GPS Location',
@@ -196,12 +273,10 @@ export default function App() {
   const [mapSelectionTarget, setMapSelectionTarget] =
     useState<MapSelectionTarget>(null);
 
-  // Saturday Pricing
   const actualSaturday = useMemo(() => isTodaySaturday(), []);
   const [saturdayPreview, setSaturdayPreview] = useState<boolean>(actualSaturday);
   const saturdayPromoActive = actualSaturday || saturdayPreview;
 
-  // Discovery Places State
   const [discoveredPlaces, setDiscoveredPlaces] = useState<DiscoveredPlace[]>([]);
   const [discoveryLabel, setDiscoveryLabel] = useState<string>('Explore Nearby');
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
@@ -212,9 +287,48 @@ export default function App() {
     seq: number;
   } | null>(null);
 
-  // Booking, Validation & Rider Dispatch State
   const [locationError, setLocationError] = useState<string | null>(null);
   const [activeRide, setActiveRide] = useState<RideBooking | null>(null);
+
+  const [paymentMethods, setPaymentMethods] = useState<SavedPaymentMethod[]>(() => {
+    try {
+      const saved = window.localStorage.getItem(PAYMENT_METHODS_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved) as SavedPaymentMethod[];
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {
+      return DEFAULT_PAYMENT_METHODS;
+    }
+    return DEFAULT_PAYMENT_METHODS;
+  });
+
+  const [selectedPaymentId, setSelectedPaymentId] = useState<string>(() => {
+    const def = paymentMethods.find((m) => m.isDefault) || paymentMethods[0];
+    return def ? def.id : 'pm_cash';
+  });
+
+  const [favorites, setFavorites] = useState<FavoriteDestination[]>(() => {
+    try {
+      const saved = window.localStorage.getItem(FAVORITES_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved) as FavoriteDestination[];
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {
+      return DEFAULT_FAVORITES;
+    }
+    return DEFAULT_FAVORITES;
+  });
+
+  const [appliedPromoCode, setAppliedPromoCode] = useState<string | null>(() => {
+    try {
+      return window.localStorage.getItem(PROMO_STORAGE_KEY) || null;
+    } catch {
+      return null;
+    }
+  });
+
   const [orderHistory, setOrderHistory] = useState<RideBooking[]>(() => {
     try {
       const saved = window.localStorage.getItem(ORDER_HISTORY_STORAGE_KEY);
@@ -223,10 +337,11 @@ export default function App() {
         if (Array.isArray(parsed)) return parsed;
       }
     } catch {
-      // ignore storage errors
+      return SEED_ORDER_HISTORY;
     }
     return SEED_ORDER_HISTORY;
   });
+
   const [incomingRequests, setIncomingRequests] = useState<RideBooking[]>(
     SEED_DISPATCH_REQUESTS
   );
@@ -234,11 +349,45 @@ export default function App() {
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(ORDER_HISTORY_STORAGE_KEY, JSON.stringify(orderHistory));
+      window.localStorage.setItem(
+        ORDER_HISTORY_STORAGE_KEY,
+        JSON.stringify(orderHistory)
+      );
     } catch {
-      // ignore storage quota errors
+      // storage unavailable
     }
   }, [orderHistory]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        PAYMENT_METHODS_STORAGE_KEY,
+        JSON.stringify(paymentMethods)
+      );
+    } catch {
+      // storage unavailable
+    }
+  }, [paymentMethods]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(favorites));
+    } catch {
+      // storage unavailable
+    }
+  }, [favorites]);
+
+  useEffect(() => {
+    try {
+      if (appliedPromoCode) {
+        window.localStorage.setItem(PROMO_STORAGE_KEY, appliedPromoCode);
+      } else {
+        window.localStorage.removeItem(PROMO_STORAGE_KEY);
+      }
+    } catch {
+      // storage unavailable
+    }
+  }, [appliedPromoCode]);
 
   useEffect(() => {
     if (!locationError) return;
@@ -253,14 +402,12 @@ export default function App() {
     });
   }, []);
 
-  // Tier 1 & 2 Quota Listener
   useEffect(() => {
     const handler = () => setQuotaExceeded(true);
     window.addEventListener('gmp-quota-exceeded', handler);
     return () => window.removeEventListener('gmp-quota-exceeded', handler);
   }, []);
 
-  // Real-time Browser Geolocation Tracking
   useEffect(() => {
     if (!('geolocation' in navigator)) return;
 
@@ -278,7 +425,11 @@ export default function App() {
           lng: next.lng,
         };
         setPickup((prev) => {
-          if (!prev || prev.label === 'Current GPS Location' || prev.address === 'Live GPS Position') {
+          if (
+            !prev ||
+            prev.label === 'Current GPS Location' ||
+            prev.address === 'Live GPS Position'
+          ) {
             return candidate;
           }
           return prev;
@@ -299,7 +450,6 @@ export default function App() {
     return () => navigator.geolocation.clearWatch(watchId);
   }, []);
 
-  // Supabase Auth Session Sync (when configured)
   useEffect(() => {
     if (!supabase) return;
     supabase.auth.getSession().then(({data}) => {
@@ -346,15 +496,42 @@ export default function App() {
   const computedDistanceKm = useMemo(() => {
     if (distanceKm > 0) return distanceKm;
     if (pickup && destination) {
-      return Number(Math.max(0.8, calculateHaversineKm(pickup, destination) * 1.25).toFixed(2));
+      return Number(
+        Math.max(0.8, calculateHaversineKm(pickup, destination) * 1.25).toFixed(2)
+      );
     }
     return 0;
   }, [distanceKm, pickup, destination]);
 
   const fare = useMemo(() => {
     if (!pickup || !destination || computedDistanceKm <= 0) return null;
-    return calculateByaheroFare(computedDistanceKm, vehicleType, saturdayPromoActive);
-  }, [pickup, destination, computedDistanceKm, vehicleType, saturdayPromoActive]);
+    const base = calculateByaheroFare(
+      computedDistanceKm,
+      vehicleType,
+      saturdayPromoActive
+    );
+    if (!appliedPromoCode) return base;
+    const promo = AVAILABLE_PROMO_CODES.find((p) => p.code === appliedPromoCode);
+    if (!promo || saturdayPromoActive) return base;
+    const extraDiscount = Math.min(
+      promo.maxDiscountPhp,
+      Math.round(base.subtotal * (promo.discountPercent / 100) * 100) / 100
+    );
+    const nextFinal = Math.max(30, Math.round((base.subtotal - extraDiscount) * 100) / 100);
+    return {
+      ...base,
+      isSaturdayPromo: true,
+      passengerDiscount: extraDiscount,
+      finalFare: nextFinal,
+    };
+  }, [
+    pickup,
+    destination,
+    computedDistanceKm,
+    vehicleType,
+    saturdayPromoActive,
+    appliedPromoCode,
+  ]);
 
   const handleRouteCalculated = useCallback((km: number, mins: number) => {
     setDistanceKm(km);
@@ -388,6 +565,58 @@ export default function App() {
     },
     [pickup]
   );
+
+  const handleSavePaymentMethod = useCallback((method: SavedPaymentMethod) => {
+    setPaymentMethods((prev) => {
+      const cleaned = prev.map((m) => ({...m, isDefault: false}));
+      return [...cleaned, {...method, isDefault: true}];
+    });
+    setSelectedPaymentId(method.id);
+  }, []);
+
+  const handleSelectPaymentMethod = useCallback((id: string) => {
+    setSelectedPaymentId(id);
+    setPaymentMethods((prev) =>
+      prev.map((m) => ({...m, isDefault: m.id === id}))
+    );
+  }, []);
+
+  const handleRemovePaymentMethod = useCallback(
+    (id: string) => {
+      setPaymentMethods((prev) => {
+        const remaining = prev.filter((m) => m.id !== id);
+        if (remaining.length === 0) return DEFAULT_PAYMENT_METHODS;
+        if (selectedPaymentId === id) {
+          setSelectedPaymentId(remaining[0].id);
+        }
+        return remaining;
+      });
+    },
+    [selectedPaymentId]
+  );
+
+  const handleAddFavoriteDestination = useCallback((stop: LocationStop) => {
+    setFavorites((prev) => {
+      const exists = prev.some((f) =>
+        areLocationsSame(
+          {label: f.label, address: f.address, lat: f.lat, lng: f.lng},
+          stop
+        )
+      );
+      if (exists) return prev;
+      return [
+        {
+          id: `fav_${Date.now()}`,
+          label: stop.label,
+          address: stop.address,
+          lat: stop.lat,
+          lng: stop.lng,
+          ordersCount: 1,
+        },
+        ...prev,
+      ];
+    });
+  }, []);
 
   const handleMapTapSelect = useCallback(
     (coords: LatLngPoint) => {
@@ -481,6 +710,8 @@ export default function App() {
       return;
     }
     setLocationError(null);
+    const chosenPayment =
+      paymentMethods.find((m) => m.id === selectedPaymentId) || paymentMethods[0];
     const newRide: RideBooking = {
       id: `ride_${Date.now()}`,
       passengerName: profile.fullName,
@@ -490,14 +721,39 @@ export default function App() {
       distanceKm: computedDistanceKm,
       durationMins: durationMins || Math.max(5, Math.round(computedDistanceKm * 3)),
       fare,
+      paymentMethodType: chosenPayment?.type || 'cash',
+      paymentMethodLabel: chosenPayment?.label || 'Cash',
+      promoCode: appliedPromoCode || undefined,
       status: 'searching',
       roleContext: 'passenger',
       createdAt: new Date().toISOString(),
     };
     setActiveRide(newRide);
+    setFavorites((prev) =>
+      prev.map((f) =>
+        areLocationsSame(
+          {label: f.label, address: f.address, lat: f.lat, lng: f.lng},
+          destination
+        )
+          ? {...f, ordersCount: f.ordersCount + 1}
+          : f
+      )
+    );
     setMobileMapExpanded(false);
     void publishRideToSupabase(newRide, profile.id);
-  }, [pickup, destination, fare, profile.fullName, profile.id, vehicleType, computedDistanceKm, durationMins]);
+  }, [
+    pickup,
+    destination,
+    fare,
+    paymentMethods,
+    selectedPaymentId,
+    profile.fullName,
+    profile.id,
+    vehicleType,
+    computedDistanceKm,
+    durationMins,
+    appliedPromoCode,
+  ]);
 
   const handleAdvanceRideStatus = useCallback(() => {
     setActiveRide((prev) => {
@@ -506,8 +762,10 @@ export default function App() {
         return {
           ...prev,
           status: 'accepted',
-          riderName: prev.vehicleType === 'motorcycle' ? 'Kuya Carlo D.' : 'Kuya Ramon V.',
-          riderPlate: prev.vehicleType === 'motorcycle' ? 'MTO-8421' : 'TXI-3902',
+          riderName:
+            prev.vehicleType === 'motorcycle' ? 'Kuya Carlo D.' : 'Kuya Ramon V.',
+          riderPlate:
+            prev.vehicleType === 'motorcycle' ? 'MTO-8421' : 'TXI-3902',
           riderRating: 4.96,
         };
       }
@@ -558,11 +816,7 @@ export default function App() {
         lng: place.lng,
         placeId: place.id,
       };
-      if (!trySetPickup(candidate)) {
-        setActiveTab('ride');
-        setMobileMapExpanded(false);
-        return;
-      }
+      trySetPickup(candidate);
       setActiveTab('ride');
       setMobileMapExpanded(false);
     },
@@ -578,11 +832,7 @@ export default function App() {
         lng: place.lng,
         placeId: place.id,
       };
-      if (!trySetDestination(candidate)) {
-        setActiveTab('ride');
-        setMobileMapExpanded(false);
-        return;
-      }
+      trySetDestination(candidate);
       setActiveTab('ride');
       setMobileMapExpanded(false);
     },
@@ -671,17 +921,21 @@ export default function App() {
         ...prev,
         totalRides: prev.totalRides + 1,
         riderEarningsPhp:
-          Math.round((prev.riderEarningsPhp + activeRiderJob.fare.riderTotalPayout) * 100) /
-          100,
+          Math.round(
+            (prev.riderEarningsPhp + activeRiderJob.fare.riderTotalPayout) * 100
+          ) / 100,
         riderIncentivesPhp:
-          Math.round((prev.riderIncentivesPhp + activeRiderJob.fare.riderIncentive) * 100) /
-          100,
+          Math.round(
+            (prev.riderIncentivesPhp + activeRiderJob.fare.riderIncentive) * 100
+          ) / 100,
       };
       void syncProfileToSupabase(updated);
       return updated;
     });
     setActiveRiderJob(null);
   }, [activeRiderJob, recordOrderInHistory]);
+
+  const firstName = profile.fullName.split(' ')[0] || 'User';
 
   const shellContent = (
     <div
@@ -695,7 +949,6 @@ export default function App() {
           'radial-gradient(circle at 12% 10%, rgba(15, 82, 43, 0.09) 0%, transparent 40%), radial-gradient(circle at 88% 85%, rgba(16, 185, 129, 0.10) 0%, transparent 45%), #F4F7F5',
       }}
     >
-      {/* Top Bar (Mobile) */}
       <header
         className={`shrink-0 h-14 px-4 bg-white/80 backdrop-blur-xl border-b border-[#0F522B]/10 flex items-center justify-between gap-3 z-30 ${
           mobilePreviewFrame ? '' : 'lg:hidden'
@@ -708,31 +961,20 @@ export default function App() {
           </span>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
-          {profile.role === 'both' && (
-            <button
-              type="button"
-              onClick={() =>
-                handleSwitchActiveMode(
-                  profile.activeMode === 'passenger' ? 'rider' : 'passenger'
-                )
-              }
-              className="h-8 px-3 rounded-xl bg-[#0F522B] text-[11px] font-bold text-white whitespace-nowrap shadow-sm"
-            >
-              {profile.activeMode === 'passenger' ? 'Passenger' : 'Rider Mode'}
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => setAuthModalOpen(true)}
-            className="h-8 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-[#101713] text-[11px] font-bold whitespace-nowrap shadow-xs"
-          >
-            {profile.fullName.split(' ')[0]}
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => {
+            setSettingsSection('account');
+            setActiveTab('settings');
+            setMobileMapExpanded(false);
+          }}
+          title={profile.fullName}
+          className="w-10 h-10 rounded-full bg-[#0F522B] hover:bg-[#146C3A] text-white text-[11px] font-bold flex items-center justify-center shadow-sm transition-colors shrink-0 overflow-hidden px-1"
+        >
+          <span className="truncate">{firstName}</span>
+        </button>
       </header>
 
-      {/* Left Control Column on Desktop / Frosted Sheet + Docked Green Nav on Mobile */}
       <aside
         className={`order-2 ${
           mobilePreviewFrame
@@ -740,7 +982,6 @@ export default function App() {
             : 'lg:order-1 lg:w-[440px] xl:w-[470px] lg:h-full lg:border-r lg:border-t-0 lg:flex-none flex flex-col bg-white/70 backdrop-blur-2xl border-t border-white z-20'
         }`}
       >
-        {/* Desktop Header */}
         <div
           className={`hidden ${
             mobilePreviewFrame ? '' : 'lg:flex'
@@ -758,7 +999,7 @@ export default function App() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
             <button
               type="button"
               onClick={() => setMobilePreviewFrame((v) => !v)}
@@ -770,15 +1011,18 @@ export default function App() {
             </button>
             <button
               type="button"
-              onClick={() => setAuthModalOpen(true)}
-              className="h-10 px-3.5 rounded-xl bg-[#0F522B] hover:bg-[#146C3A] text-white text-xs font-bold whitespace-nowrap shadow-sm transition-colors"
+              onClick={() => {
+                setSettingsSection('account');
+                setActiveTab('settings');
+              }}
+              title={profile.fullName}
+              className="w-10 h-10 rounded-full bg-[#0F522B] hover:bg-[#146C3A] text-white text-[11px] font-bold flex items-center justify-center shadow-sm transition-colors shrink-0 overflow-hidden px-1"
             >
-              {profile.fullName.split(' ')[0]}
+              <span className="truncate">{firstName}</span>
             </button>
           </div>
         </div>
 
-        {/* Mobile Sheet Expand / Collapse Handle */}
         <div
           className={`flex items-center justify-between px-4 py-2 border-b border-[#0F522B]/10 ${
             mobilePreviewFrame ? '' : 'lg:hidden'
@@ -793,7 +1037,7 @@ export default function App() {
               ? 'Order History'
               : activeTab === 'rider'
               ? 'Rider Dispatch (+5% Bonus)'
-              : 'Account & Role'}
+              : 'App Settings'}
           </span>
           <button
             type="button"
@@ -814,7 +1058,6 @@ export default function App() {
           </button>
         </div>
 
-        {/* Desktop Navigation Tabs */}
         <nav
           aria-label="Primary navigation"
           className={`hidden ${
@@ -826,7 +1069,7 @@ export default function App() {
             {id: 'explore', label: 'Explore', icon: Compass},
             {id: 'history', label: 'History', icon: History},
             {id: 'rider', label: 'Rider', icon: Bike},
-            {id: 'account', label: 'Account', icon: User},
+            {id: 'settings', label: 'Settings', icon: Settings},
           ] as const).map((tab) => {
             const Icon = tab.icon;
             const active = activeTab === tab.id;
@@ -848,7 +1091,6 @@ export default function App() {
           })}
         </nav>
 
-        {/* Scrollable Panel Body */}
         <div
           className={`overflow-y-auto px-4 py-4 transition-all ${
             mobileMapExpanded
@@ -871,6 +1113,17 @@ export default function App() {
               isActualSaturday={actualSaturday}
               activeRide={activeRide}
               locationError={locationError}
+              paymentMethods={paymentMethods}
+              selectedPaymentId={selectedPaymentId}
+              favorites={favorites}
+              appliedPromoCode={appliedPromoCode}
+              onSelectPaymentMethod={handleSelectPaymentMethod}
+              onSavePaymentMethod={handleSavePaymentMethod}
+              onAddFavoriteDestination={handleAddFavoriteDestination}
+              onOpenSettingsSection={(sec) => {
+                setSettingsSection(sec);
+                setActiveTab('settings');
+              }}
               onSetPickup={trySetPickup}
               onSetDestination={trySetDestination}
               onSwapStops={handleSwapStops}
@@ -925,12 +1178,33 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'account' && (
-            <AccountPanel
+          {activeTab === 'settings' && (
+            <SettingsPanel
               profile={profile}
+              activeSection={settingsSection}
+              favorites={favorites}
+              paymentMethods={paymentMethods}
+              selectedPaymentId={selectedPaymentId}
+              promoCodes={AVAILABLE_PROMO_CODES}
+              appliedPromoCode={appliedPromoCode}
+              onSelectSection={setSettingsSection}
               onOpenAuthModal={() => setAuthModalOpen(true)}
               onSwitchRole={handleSwitchRole}
               onSwitchActiveMode={handleSwitchActiveMode}
+              onSelectFavoriteAsDestination={(stop) => {
+                if (trySetDestination(stop)) {
+                  setActiveTab('ride');
+                  setMobileMapExpanded(false);
+                }
+              }}
+              onAddFavorite={(fav) => setFavorites((prev) => [fav, ...prev])}
+              onRemoveFavorite={(id) =>
+                setFavorites((prev) => prev.filter((f) => f.id !== id))
+              }
+              onSelectPaymentMethod={handleSelectPaymentMethod}
+              onSavePaymentMethod={handleSavePaymentMethod}
+              onRemovePaymentMethod={handleRemovePaymentMethod}
+              onApplyPromoCode={setAppliedPromoCode}
               onLogout={() => {
                 setIsAuthenticated(false);
                 setActiveTab('ride');
@@ -941,7 +1215,6 @@ export default function App() {
           )}
         </div>
 
-        {/* Mobile Bottom Thumb-Zone Rounded Deep Forest Green Dock */}
         <div
           className={`px-3 pt-1 pb-2.5 pb-safe shrink-0 ${
             mobilePreviewFrame ? '' : 'lg:hidden'
@@ -956,7 +1229,7 @@ export default function App() {
               {id: 'explore', label: 'Explore', icon: Compass},
               {id: 'history', label: 'History', icon: History},
               {id: 'rider', label: 'Rider', icon: Bike},
-              {id: 'account', label: 'Account', icon: User},
+              {id: 'settings', label: 'Settings', icon: Settings},
             ] as const).map((tab) => {
               const Icon = tab.icon;
               const active = activeTab === tab.id;
@@ -985,7 +1258,6 @@ export default function App() {
         </div>
       </aside>
 
-      {/* Live Google Maps Viewport */}
       <main
         className={`order-1 flex-1 min-h-0 relative ${
           mobilePreviewFrame ? 'w-full' : 'lg:order-2 lg:h-full'
@@ -1044,7 +1316,6 @@ export default function App() {
     >
       <SplashIntro visible={showSplash} onFinish={() => setShowSplash(false)} />
 
-      {/* Case A: Google Maps Quota Exceeded Sticky Banner */}
       {quotaExceeded && (
         <div className="bg-amber-50 border-b border-amber-200 text-amber-900 px-4 py-2.5 text-xs md:text-sm text-center sticky top-0 z-50 shadow-sm">
           <span>

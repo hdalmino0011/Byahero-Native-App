@@ -1,9 +1,17 @@
 export type UserRole = 'passenger' | 'rider' | 'both';
 export type ActiveMode = 'passenger' | 'rider';
 export type VehicleType = 'motorcycle' | 'taxi';
-export type AppTab = 'ride' | 'explore' | 'history' | 'rider' | 'account';
+export type AppTab = 'ride' | 'explore' | 'history' | 'rider' | 'settings';
+export type SettingsSection =
+  | 'account'
+  | 'favorites'
+  | 'payments'
+  | 'promos'
+  | 'support'
+  | 'about';
 export type DiscoveryCategory = 'fast_food' | 'resort_beach' | 'all';
 export type MapSelectionTarget = 'pickup' | 'destination' | null;
+export type PaymentMethodType = 'cash' | 'gcash' | 'card';
 
 export interface LatLngPoint {
   lat: number;
@@ -16,6 +24,42 @@ export interface LocationStop {
   lat: number;
   lng: number;
   placeId?: string;
+}
+
+export interface SavedPaymentMethod {
+  id: string;
+  type: PaymentMethodType;
+  label: string;
+  subtitle: string;
+  accountNumberOrLast4?: string;
+  holderName?: string;
+  expiry?: string;
+  isDefault?: boolean;
+}
+
+export interface FavoriteDestination {
+  id: string;
+  label: string;
+  address: string;
+  lat: number;
+  lng: number;
+  ordersCount: number;
+}
+
+export interface PromoCodeItem {
+  code: string;
+  title: string;
+  description: string;
+  discountPercent: number;
+  maxDiscountPhp: number;
+}
+
+export interface SupportTicket {
+  id: string;
+  category: string;
+  message: string;
+  status: 'open' | 'resolved';
+  createdAt: string;
 }
 
 export interface FareBreakdown {
@@ -50,6 +94,9 @@ export interface RideBooking {
   distanceKm: number;
   durationMins: number;
   fare: FareBreakdown;
+  paymentMethodType?: PaymentMethodType;
+  paymentMethodLabel?: string;
+  promoCode?: string;
   status: RideStatus;
   roleContext?: 'passenger' | 'rider';
   createdAt: string;

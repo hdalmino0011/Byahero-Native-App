@@ -2,21 +2,30 @@ import React, {useState} from 'react';
 import {
   AlertCircle,
   ArrowUpDown,
+  Banknote,
+  Bookmark,
   CheckCircle2,
   Clock,
+  CreditCard,
   Crosshair,
   MapPin,
   Navigation,
   Percent,
+  Plus,
   Route as RouteIcon,
+  Smartphone,
+  Tag,
   X,
 } from 'lucide-react';
 import {
   FareBreakdown,
+  FavoriteDestination,
   LatLngPoint,
   LocationStop,
   MapSelectionTarget,
+  PaymentMethodType,
   RideBooking,
+  SavedPaymentMethod,
   VehicleType,
 } from '../types/byahero';
 import {formatPhp} from '../utils/pricing';
@@ -39,6 +48,16 @@ interface BookingPanelProps {
   isActualSaturday: boolean;
   activeRide: RideBooking | null;
   locationError?: string | null;
+  paymentMethods: SavedPaymentMethod[];
+  selectedPaymentId: string;
+  favorites: FavoriteDestination[];
+  appliedPromoCode: string | null;
+  onSelectPaymentMethod: (id: string) => void;
+  onSavePaymentMethod: (method: SavedPaymentMethod) => void;
+  onAddFavoriteDestination: (stop: LocationStop) => void;
+  onOpenSettingsSection: (
+    section: 'account' | 'favorites' | 'payments' | 'promos' | 'support' | 'about'
+  ) => void;
   onSetPickup: (stop: LocationStop | null) => void;
   onSetDestination: (stop: LocationStop | null) => void;
   onSwapStops: () => void;
@@ -63,6 +82,14 @@ export const BookingPanel: React.FC<BookingPanelProps> = ({
   isActualSaturday,
   activeRide,
   locationError,
+  paymentMethods,
+  selectedPaymentId,
+  favorites,
+  appliedPromoCode,
+  onSelectPaymentMethod,
+  onSavePaymentMethod,
+  onAddFavoriteDestination,
+  onOpenSettingsSection,
   onSetPickup,
   onSetDestination,
   onSwapStops,
@@ -82,12 +109,37 @@ export const BookingPanel: React.FC<BookingPanelProps> = ({
   const [focusedField, setFocusedField] = useState<'pickup' | 'destination' | null>(
     null
   );
-
   const [fallbackResults, setFallbackResults] = useState<LocationStop[]>([]);
+
+  const [addingPaymentType, setAddingPaymentType] = useState<'gcash' | 'card' | null>(
+    null
+  );
+  const [gcashNumber, setGcashNumber] = useState('');
+  const [gcashName, setGcashName] = useState('');
+  const [cardHolder, setCardHolder] = useState('');
+  const [cardNumber, setCardNumber] = useState('');
+  const [cardExpiry, setCardExpiry] = useState('');
+  const [cardCvv, setCardCvv] = useState('');
+  const [paymentFormError, setPaymentFormError] = useState<string | null>(null);
 
   const activeInput = focusedField === 'pickup' ? pickupQuery : destQuery;
   const {suggestions, isLoading, resolvePlace, resetSession} =
     useAutocompleteSuggestions(activeInput, userLocation);
+
+  const selectedPayment =
+    paymentMethods.find((m) => m.id === selectedPaymentId) || paymentMethods[0];
+  const savedGcash = paymentMethods.find((m) => m.type === 'gcash');
+  const savedCard = paymentMethods.find((m) => m.type === 'card');
+
+  const isDestAlreadyFavorite = Boolean(
+    destination &&
+      favorites.some((f) =>
+        areLocationsSame(
+          {label: f.label, address: f.address, lat: f.lat, lng: f.lng},
+          destination
+        )
+      )
+  );
 
   const runFallbackSearch = async (q: string) => {
     const trimmed = q.trim();
@@ -103,7 +155,13 @@ export const BookingPanel: React.FC<BookingPanelProps> = ({
         {headers: {Accept: 'application/json'}}
       );
       if (res.ok) {
-        const rows = (await res.json()) as Array<{place_id: number; display_name: string; name?: string; lat: string; lon: string}>;
+        const rows = (await res.json()) as Array<{
+          place_id: number;
+          display_name: string;
+          name?: string;
+          lat: string;
+          lon: string;
+        }>;
         setFallbackResults(
           rows.map((r) => ({
             placeId: String(r.place_id),
@@ -115,7 +173,7 @@ export const BookingPanel: React.FC<BookingPanelProps> = ({
         );
       }
     } catch {
-      // ignore
+      setFallbackResults([]);
     }
   };
 
@@ -147,6 +205,95 @@ export const BookingPanel: React.FC<BookingPanelProps> = ({
     resetSession();
   };
 
+  const handleChooseQuickPaymentType = (type: PaymentMethodType) => {
+    setPaymentFormError(null);
+    if (type === 'cash') {
+      const cashMethod = paymentMethods.find((m) => m.type === 'cash');
+      if (cashMethod) onSelectPaymentMethod(cashMethod.id);
+      setAddingPaymentType(null);
+      return;
+    }
+    if (type === 'gcash') {
+      if (savedGcash) {
+        onSelectPaymentMethod(savedGcash.id);
+        setAddingPaymentType(null);
+      } else {
+        setAddingPaymentType('gcash');
+      }
+      return;
+    }
+    if (type === 'card') {
+      if (savedCard) {
+        onSelectPaymentMethod(savedCard.id);
+        setAddingPaymentType(null);
+      } else {
+        setAddingPaymentType('card');
+      }
+    }
+  };
+
+  const handleConnectGcash = (e: React.FormEvent) => {
+    e.preventDefault();
+    const digits = gcashNumber.replace(/\D/g, '');
+    if (digits.length < 10) {
+      setPaymentFormError('Enter a valid 11-digit GCash mobile number.');
+      return;
+    }
+    const cleanName = gcashName.trim() || 'BYAHERO Passenger';
+    const last4 = digits.slice(-4);
+    const created: SavedPaymentMethod = {
+      id: `pm_gcash_${Date.now()}`,
+      type: 'gcash',
+      label: `GCash (•••• ${last4})`,
+      subtitle: `${cleanName} · Connected GCash`,
+      accountNumberOrLast4: last4,
+      holderName: cleanName,
+      isDefault: true,
+    };
+    onSavePaymentMethod(created);
+    setGcashNumber('');
+    setGcashName('');
+    setPaymentFormError(null);
+    setAddingPaymentType(null);
+  };
+
+  const handleRegisterCard = (e: React.FormEvent) => {
+    e.preventDefault();
+    const digits = cardNumber.replace(/\D/g, '');
+    if (digits.length < 12) {
+      setPaymentFormError('Enter a valid 16-digit credit or debit card number.');
+      return;
+    }
+    if (!cardExpiry.trim()) {
+      setPaymentFormError('Enter card expiry date (MM/YY).');
+      return;
+    }
+    if (cardCvv.replace(/\D/g, '').length < 3) {
+      setPaymentFormError('Enter a valid 3-digit CVV.');
+      return;
+    }
+    const cleanHolder = cardHolder.trim() || 'BYAHERO Cardholder';
+    const last4 = digits.slice(-4);
+    const brand = digits.startsWith('4') ? 'Visa' : digits.startsWith('5') ? 'Mastercard' : 'Card';
+    const created: SavedPaymentMethod = {
+      id: `pm_card_${Date.now()}`,
+      type: 'card',
+      label: `${brand} •••• ${last4}`,
+      subtitle: `${cleanHolder} · Exp ${cardExpiry.trim()}`,
+      accountNumberOrLast4: last4,
+      holderName: cleanHolder,
+      expiry: cardExpiry.trim(),
+      isDefault: true,
+    };
+    onSavePaymentMethod(created);
+    setCardHolder('');
+    setCardNumber('');
+    setCardExpiry('');
+    setCardCvv('');
+    setPaymentFormError(null);
+    setAddingPaymentType(null);
+  };
+
   if (activeRide) {
     const statusSteps = [
       {key: 'searching', label: 'Finding nearest BYAHERO rider'},
@@ -166,7 +313,8 @@ export const BookingPanel: React.FC<BookingPanelProps> = ({
               <div className="text-xs font-semibold text-emerald-200">
                 {activeRide.vehicleType === 'motorcycle'
                   ? 'BYAHERO Moto'
-                  : 'BYAHERO Cab'}
+                  : 'BYAHERO Cab'}{' '}
+                · {activeRide.paymentMethodLabel || 'Cash'}
               </div>
               <h3 className="text-base font-bold text-white mt-0.5">
                 {statusSteps[Math.max(0, currentIdx)].label}
@@ -269,8 +417,7 @@ export const BookingPanel: React.FC<BookingPanelProps> = ({
   }
 
   return (
-    <div className="space-y-4">
-      {/* Saturday 10% Discount Hero Card (Deep Forest Green Glass) */}
+    <div className="space-y-3.5">
       <div className="flex items-center justify-between gap-3 px-4 py-3 rounded-2xl glass-green text-white">
         <div className="flex items-center gap-3 min-w-0">
           <div className="w-9 h-9 rounded-xl bg-white/15 border border-white/20 flex items-center justify-center shrink-0">
@@ -306,9 +453,7 @@ export const BookingPanel: React.FC<BookingPanelProps> = ({
         )}
       </div>
 
-      {/* Pickup & Destination Frosted Glass Inputs */}
       <div className="relative space-y-2.5">
-        {/* Pickup Row */}
         <div className="flex items-center gap-1.5 glass-surface focus-within:border-[#0F522B] rounded-2xl px-3.5 py-2 transition-colors">
           <span className="w-2.5 h-2.5 rounded-full bg-[#101713] ring-4 ring-[#0F522B]/20 shrink-0" />
           <div className="flex-1 min-w-0">
@@ -374,7 +519,6 @@ export const BookingPanel: React.FC<BookingPanelProps> = ({
           </button>
         </div>
 
-        {/* Swap Button */}
         <div className="absolute right-14 top-1/2 -translate-y-1/2 z-10">
           <button
             type="button"
@@ -386,7 +530,6 @@ export const BookingPanel: React.FC<BookingPanelProps> = ({
           </button>
         </div>
 
-        {/* Destination Row */}
         <div className="flex items-center gap-1.5 glass-surface focus-within:border-[#0F522B] rounded-2xl px-3.5 py-2 transition-colors">
           <span className="w-2.5 h-2.5 rounded-sm bg-[#0F522B] shrink-0" />
           <div className="flex-1 min-w-0">
@@ -415,11 +558,23 @@ export const BookingPanel: React.FC<BookingPanelProps> = ({
                   void runFallbackSearch(destQuery);
                 }
               }}
-              placeholder={destination?.label || 'Search destination place'}
+              placeholder={destination?.label || 'Where are you heading?'}
               aria-label="Destination location"
               className="w-full bg-transparent text-sm font-semibold text-[#101713] placeholder:text-[#55625A] focus:outline-none truncate"
             />
           </div>
+          {destination && !isDestAlreadyFavorite && (
+            <button
+              type="button"
+              onClick={() => onAddFavoriteDestination(destination)}
+              title="Save Destination to Favorites"
+              aria-label="Save destination to favorites"
+              className="min-h-[34px] px-2 rounded-lg text-[#0F522B] hover:bg-[#0F522B]/10 text-[10px] font-bold flex items-center gap-1 shrink-0"
+            >
+              <Bookmark className="w-3.5 h-3.5" />
+              <span>Save</span>
+            </button>
+          )}
           {focusedField === 'destination' && destQuery && (
             <button
               type="button"
@@ -443,7 +598,6 @@ export const BookingPanel: React.FC<BookingPanelProps> = ({
           </button>
         </div>
 
-        {/* Autocomplete Suggestions List */}
         {focusedField && (suggestions.length > 0 || fallbackResults.length > 0 || isLoading) && (
           <div className="glass-surface rounded-2xl overflow-hidden divide-y divide-[#0F522B]/10 shadow-xl">
             {isLoading && suggestions.length === 0 && fallbackResults.length === 0 && (
@@ -517,7 +671,31 @@ export const BookingPanel: React.FC<BookingPanelProps> = ({
         )}
       </div>
 
-      {/* Vehicle Selection: Motorcycle vs Taxi */}
+      {favorites.length > 0 && (
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
+          <span className="text-[10px] font-bold text-[#55625A] shrink-0 mr-1">
+            Favorites:
+          </span>
+          {favorites.slice(0, 4).map((fav) => (
+            <button
+              key={fav.id}
+              type="button"
+              onClick={() =>
+                onSetDestination({
+                  label: fav.label,
+                  address: fav.address,
+                  lat: fav.lat,
+                  lng: fav.lng,
+                })
+              }
+              className="h-7 px-2.5 rounded-lg bg-[#EBF1ED] hover:bg-[#DCE7E0] text-[#0F522B] text-[11px] font-semibold whitespace-nowrap shrink-0 transition-colors"
+            >
+              {fav.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-2.5">
         <button
           type="button"
@@ -588,7 +766,226 @@ export const BookingPanel: React.FC<BookingPanelProps> = ({
         </button>
       </div>
 
-      {/* Fare & Route Summary */}
+      <div className="p-3.5 rounded-2xl glass-surface space-y-2.5">
+        <div className="flex items-center justify-between">
+          <div className="text-xs font-bold text-[#101713]">Payment Method</div>
+          <button
+            type="button"
+            onClick={() => onOpenSettingsSection('payments')}
+            className="text-[11px] font-bold text-[#0F522B] hover:underline"
+          >
+            Manage in Settings
+          </button>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2">
+          <button
+            type="button"
+            onClick={() => handleChooseQuickPaymentType('cash')}
+            className={`p-2.5 rounded-xl border text-left transition-all ${
+              selectedPayment?.type === 'cash' && !addingPaymentType
+                ? 'bg-[#0F522B] text-white border-[#0F522B]'
+                : 'bg-white/80 text-[#101713] border-[#0F522B]/15 hover:border-[#0F522B]/40'
+            }`}
+          >
+            <Banknote className="w-4 h-4 mb-1" />
+            <div className="text-xs font-bold">Cash</div>
+            <div
+              className={`text-[10px] truncate ${
+                selectedPayment?.type === 'cash' && !addingPaymentType
+                  ? 'text-emerald-200'
+                  : 'text-[#55625A]'
+              }`}
+            >
+              Pay rider directly
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleChooseQuickPaymentType('gcash')}
+            className={`p-2.5 rounded-xl border text-left transition-all ${
+              selectedPayment?.type === 'gcash' || addingPaymentType === 'gcash'
+                ? 'bg-[#0F522B] text-white border-[#0F522B]'
+                : 'bg-white/80 text-[#101713] border-[#0F522B]/15 hover:border-[#0F522B]/40'
+            }`}
+          >
+            <Smartphone className="w-4 h-4 mb-1" />
+            <div className="text-xs font-bold">GCash</div>
+            <div
+              className={`text-[10px] truncate ${
+                selectedPayment?.type === 'gcash' || addingPaymentType === 'gcash'
+                  ? 'text-emerald-200'
+                  : 'text-[#55625A]'
+              }`}
+            >
+              {savedGcash ? `•••• ${savedGcash.accountNumberOrLast4}` : '+ Connect GCash'}
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleChooseQuickPaymentType('card')}
+            className={`p-2.5 rounded-xl border text-left transition-all ${
+              selectedPayment?.type === 'card' || addingPaymentType === 'card'
+                ? 'bg-[#0F522B] text-white border-[#0F522B]'
+                : 'bg-white/80 text-[#101713] border-[#0F522B]/15 hover:border-[#0F522B]/40'
+            }`}
+          >
+            <CreditCard className="w-4 h-4 mb-1" />
+            <div className="text-xs font-bold truncate">Credit/Debit</div>
+            <div
+              className={`text-[10px] truncate ${
+                selectedPayment?.type === 'card' || addingPaymentType === 'card'
+                  ? 'text-emerald-200'
+                  : 'text-[#55625A]'
+              }`}
+            >
+              {savedCard ? `•••• ${savedCard.accountNumberOrLast4}` : '+ Register Card'}
+            </div>
+          </button>
+        </div>
+
+        <div className="flex items-center justify-between pt-1 text-[11px]">
+          <div className="text-[#55625A] truncate">
+            Active: <span className="font-bold text-[#101713]">{selectedPayment?.label}</span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() =>
+                setAddingPaymentType(addingPaymentType === 'gcash' ? null : 'gcash')
+              }
+              className="text-[#0F522B] font-semibold inline-flex items-center gap-0.5 hover:underline"
+            >
+              <Plus className="w-3 h-3" />
+              <span>GCash</span>
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                setAddingPaymentType(addingPaymentType === 'card' ? null : 'card')
+              }
+              className="text-[#0F522B] font-semibold inline-flex items-center gap-0.5 hover:underline"
+            >
+              <Plus className="w-3 h-3" />
+              <span>Card</span>
+            </button>
+          </div>
+        </div>
+
+        {addingPaymentType === 'gcash' && (
+          <form
+            onSubmit={handleConnectGcash}
+            className="pt-2.5 border-t border-[#0F522B]/10 space-y-2"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-[#0F522B]">
+                Connect & Save GCash Account
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setAddingPaymentType(null);
+                  setPaymentFormError(null);
+                }}
+                className="text-[11px] text-[#55625A]"
+              >
+                Cancel
+              </button>
+            </div>
+            <input
+              type="tel"
+              value={gcashNumber}
+              onChange={(e) => setGcashNumber(e.target.value)}
+              placeholder="GCash Mobile Number (e.g. 09171234567)"
+              className="w-full h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
+            />
+            <input
+              type="text"
+              value={gcashName}
+              onChange={(e) => setGcashName(e.target.value)}
+              placeholder="Account Full Name"
+              className="w-full h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
+            />
+            {paymentFormError && (
+              <div className="text-[11px] font-medium text-red-600">{paymentFormError}</div>
+            )}
+            <button
+              type="submit"
+              className="w-full h-9 rounded-xl bg-[#0F522B] hover:bg-[#146C3A] text-white text-xs font-bold transition-colors"
+            >
+              Connect & Save GCash
+            </button>
+          </form>
+        )}
+
+        {addingPaymentType === 'card' && (
+          <form
+            onSubmit={handleRegisterCard}
+            className="pt-2.5 border-t border-[#0F522B]/10 space-y-2"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-[#0F522B]">
+                Register & Save Credit / Debit Card
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setAddingPaymentType(null);
+                  setPaymentFormError(null);
+                }}
+                className="text-[11px] text-[#55625A]"
+              >
+                Cancel
+              </button>
+            </div>
+            <input
+              type="text"
+              value={cardHolder}
+              onChange={(e) => setCardHolder(e.target.value)}
+              placeholder="Cardholder Name"
+              className="w-full h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
+            />
+            <input
+              type="text"
+              value={cardNumber}
+              onChange={(e) => setCardNumber(e.target.value)}
+              placeholder="Card Number (16 digits)"
+              maxLength={19}
+              className="w-full h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                type="text"
+                value={cardExpiry}
+                onChange={(e) => setCardExpiry(e.target.value)}
+                placeholder="MM/YY"
+                maxLength={5}
+                className="w-full h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
+              />
+              <input
+                type="password"
+                value={cardCvv}
+                onChange={(e) => setCardCvv(e.target.value)}
+                placeholder="CVV"
+                maxLength={4}
+                className="w-full h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
+              />
+            </div>
+            {paymentFormError && (
+              <div className="text-[11px] font-medium text-red-600">{paymentFormError}</div>
+            )}
+            <button
+              type="submit"
+              className="w-full h-9 rounded-xl bg-[#0F522B] hover:bg-[#146C3A] text-white text-xs font-bold transition-colors"
+            >
+              Register & Save Card
+            </button>
+          </form>
+        )}
+      </div>
+
       {pickup && destination && fare && !stopsAreIdentical ? (
         <div className="p-3.5 rounded-2xl glass-surface space-y-2.5">
           <div className="flex items-center justify-between text-xs text-[#55625A] tabular-nums">
@@ -606,13 +1003,21 @@ export const BookingPanel: React.FC<BookingPanelProps> = ({
           </div>
 
           <div className="pt-2 border-t border-[#0F522B]/10 flex items-baseline justify-between tabular-nums">
-            <div className="text-xs text-[#55625A]">
-              {fare.isSaturdayPromo
-                ? `Subtotal ${formatPhp(fare.subtotal)} · -10% Saturday Discount`
-                : 'Total Passenger Fare'}
+            <div className="space-y-0.5">
+              <div className="text-xs text-[#55625A]">
+                {fare.isSaturdayPromo
+                  ? `Subtotal ${formatPhp(fare.subtotal)} · -10% Discount`
+                  : 'Total Passenger Fare'}
+              </div>
+              {appliedPromoCode && (
+                <div className="text-[10px] font-bold text-[#0F522B] inline-flex items-center gap-1">
+                  <Tag className="w-3 h-3" />
+                  <span>Promo {appliedPromoCode} applied</span>
+                </div>
+              )}
             </div>
             <div className="flex items-baseline gap-2">
-              {fare.isSaturdayPromo && (
+              {fare.passengerDiscount > 0 && (
                 <span className="text-xs text-[#86948C] line-through">
                   {formatPhp(fare.subtotal)}
                 </span>
@@ -631,7 +1036,6 @@ export const BookingPanel: React.FC<BookingPanelProps> = ({
         </div>
       )}
 
-      {/* Primary Booking CTA */}
       <button
         type="button"
         disabled={!pickup || !destination || !fare || stopsAreIdentical}
@@ -639,7 +1043,7 @@ export const BookingPanel: React.FC<BookingPanelProps> = ({
         className="w-full h-12 rounded-xl bg-[#0F522B] hover:bg-[#146C3A] disabled:bg-[#DCE4DF] disabled:text-[#7E8C84] text-white font-bold text-sm transition-all active:scale-[0.99] shadow-lg"
       >
         {pickup && destination && fare && !stopsAreIdentical
-          ? `Book ${vehicleType === 'motorcycle' ? 'Moto' : 'Taxi'} · ${formatPhp(fare.finalFare)}`
+          ? `Book ${vehicleType === 'motorcycle' ? 'Moto' : 'Taxi'} (${selectedPayment?.label || 'Cash'}) · ${formatPhp(fare.finalFare)}`
           : 'Select Pickup & Destination'}
       </button>
     </div>

@@ -10,10 +10,80 @@ import java.util.Locale
 
 object OrderHistoryStore {
     private const val PREFS_NAME = "byahero_order_history"
-    private const val KEY_ORDERS = "orders_json_v1"
+    private const val KEY_ORDERS = "orders_json_v2"
+    private const val KEY_PAYMENTS = "payment_methods_json_v1"
+    private const val KEY_FAVORITES = "favorite_destinations_json_v1"
+    private const val KEY_PROMO = "applied_promo_code_v1"
 
     fun currentTimeLabel(): String {
         return SimpleDateFormat("MMM d, h:mm a", Locale.US).format(Date())
+    }
+
+    fun defaultPromoCodes(): List<PromoCodeItem> {
+        return listOf(
+            PromoCodeItem(
+                code = "BYAHERO10",
+                title = "10% Off Any Ride",
+                description = "Save 10% (up to P50) on any BYAHERO Moto or Cab trip.",
+                discountPercent = 10,
+                maxDiscountPhp = 50.0
+            ),
+            PromoCodeItem(
+                code = "SATPROMO",
+                title = "Saturday 10% Off + 5% Rider Bonus",
+                description = "Weekend special: 10% passenger discount while riders earn +5% extra.",
+                discountPercent = 10,
+                maxDiscountPhp = 80.0
+            ),
+            PromoCodeItem(
+                code = "FIRST50",
+                title = "15% Welcome Ride Saver",
+                description = "Enjoy 15% off (up to P50) on your booked destination.",
+                discountPercent = 15,
+                maxDiscountPhp = 50.0
+            )
+        )
+    }
+
+    fun defaultPaymentMethods(): List<SavedPaymentMethod> {
+        return listOf(
+            SavedPaymentMethod(
+                id = "pm_cash",
+                type = PaymentMethodType.CASH,
+                label = "Cash",
+                subtitle = "Pay rider directly upon arrival",
+                isDefault = true
+            )
+        )
+    }
+
+    fun defaultFavorites(): List<FavoriteDestination> {
+        return listOf(
+            FavoriteDestination(
+                id = "fav_1",
+                label = "SM City Cebu",
+                address = "North Reclamation Area, Cebu City",
+                lat = 10.3119,
+                lng = 123.9182,
+                ordersCount = 8
+            ),
+            FavoriteDestination(
+                id = "fav_2",
+                label = "IT Park, Lahug",
+                address = "Cebu IT Park, Apas, Cebu City",
+                lat = 10.3304,
+                lng = 123.9056,
+                ordersCount = 6
+            ),
+            FavoriteDestination(
+                id = "fav_3",
+                label = "Ayala Center Cebu",
+                address = "Cebu Business Park, Cebu City",
+                lat = 10.3181,
+                lng = 123.9049,
+                ordersCount = 4
+            )
+        )
     }
 
     fun defaultSeeds(passengerName: String): List<ActiveRide> {
@@ -35,7 +105,8 @@ object OrderHistoryStore {
                 riderName = "Kuya Carlo D.",
                 riderPlate = "MTO-8421",
                 createdAtLabel = "Yesterday, 4:20 PM",
-                roleContext = "passenger"
+                roleContext = "passenger",
+                paymentMethodLabel = "Cash"
             ),
             ActiveRide(
                 id = "hist_002",
@@ -54,7 +125,8 @@ object OrderHistoryStore {
                 riderName = "Kuya Ramon V.",
                 riderPlate = "TXI-3902",
                 createdAtLabel = "Sat, 11:05 AM",
-                roleContext = "passenger"
+                roleContext = "passenger",
+                paymentMethodLabel = "GCash"
             )
         )
     }
@@ -104,7 +176,9 @@ object OrderHistoryStore {
                         riderName = obj.optString("riderName").ifBlank { null },
                         riderPlate = obj.optString("riderPlate").ifBlank { null },
                         createdAtLabel = obj.optString("createdAtLabel", "Recent trip"),
-                        roleContext = obj.optString("roleContext", "passenger")
+                        roleContext = obj.optString("roleContext", "passenger"),
+                        paymentMethodLabel = obj.optString("paymentMethodLabel", "Cash").ifBlank { "Cash" },
+                        promoCode = obj.optString("promoCode").ifBlank { null }
                     )
                 )
             }
@@ -145,6 +219,8 @@ object OrderHistoryStore {
                     put("riderPlate", o.riderPlate.orEmpty())
                     put("createdAtLabel", o.createdAtLabel)
                     put("roleContext", o.roleContext)
+                    put("paymentMethodLabel", o.paymentMethodLabel)
+                    put("promoCode", o.promoCode.orEmpty())
                 }
                 arr.put(obj)
             }
@@ -153,7 +229,128 @@ object OrderHistoryStore {
                 .putString(KEY_ORDERS, arr.toString())
                 .apply()
         } catch (_: Exception) {
-            // Ignore preference serialization errors
+        }
+    }
+
+    fun loadPaymentMethods(context: Context): List<SavedPaymentMethod> {
+        return try {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val raw = prefs.getString(KEY_PAYMENTS, null) ?: return defaultPaymentMethods()
+            val arr = JSONArray(raw)
+            val list = mutableListOf<SavedPaymentMethod>()
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                val type = when (obj.optString("type")) {
+                    PaymentMethodType.GCASH.name -> PaymentMethodType.GCASH
+                    PaymentMethodType.CARD.name -> PaymentMethodType.CARD
+                    else -> PaymentMethodType.CASH
+                }
+                list.add(
+                    SavedPaymentMethod(
+                        id = obj.optString("id"),
+                        type = type,
+                        label = obj.optString("label"),
+                        subtitle = obj.optString("subtitle"),
+                        accountNumberOrLast4 = obj.optString("accountNumberOrLast4"),
+                        holderName = obj.optString("holderName"),
+                        expiry = obj.optString("expiry"),
+                        isDefault = obj.optBoolean("isDefault", false)
+                    )
+                )
+            }
+            if (list.isEmpty()) defaultPaymentMethods() else list
+        } catch (_: Exception) {
+            defaultPaymentMethods()
+        }
+    }
+
+    fun savePaymentMethods(context: Context, methods: List<SavedPaymentMethod>) {
+        try {
+            val arr = JSONArray()
+            for (m in methods) {
+                val obj = JSONObject().apply {
+                    put("id", m.id)
+                    put("type", m.type.name)
+                    put("label", m.label)
+                    put("subtitle", m.subtitle)
+                    put("accountNumberOrLast4", m.accountNumberOrLast4)
+                    put("holderName", m.holderName)
+                    put("expiry", m.expiry)
+                    put("isDefault", m.isDefault)
+                }
+                arr.put(obj)
+            }
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit()
+                .putString(KEY_PAYMENTS, arr.toString())
+                .apply()
+        } catch (_: Exception) {
+        }
+    }
+
+    fun loadFavorites(context: Context): List<FavoriteDestination> {
+        return try {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val raw = prefs.getString(KEY_FAVORITES, null) ?: return defaultFavorites()
+            val arr = JSONArray(raw)
+            val list = mutableListOf<FavoriteDestination>()
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                list.add(
+                    FavoriteDestination(
+                        id = obj.optString("id"),
+                        label = obj.optString("label"),
+                        address = obj.optString("address"),
+                        lat = obj.optDouble("lat"),
+                        lng = obj.optDouble("lng"),
+                        ordersCount = obj.optInt("ordersCount", 1)
+                    )
+                )
+            }
+            list
+        } catch (_: Exception) {
+            defaultFavorites()
+        }
+    }
+
+    fun saveFavorites(context: Context, favorites: List<FavoriteDestination>) {
+        try {
+            val arr = JSONArray()
+            for (f in favorites) {
+                val obj = JSONObject().apply {
+                    put("id", f.id)
+                    put("label", f.label)
+                    put("address", f.address)
+                    put("lat", f.lat)
+                    put("lng", f.lng)
+                    put("ordersCount", f.ordersCount)
+                }
+                arr.put(obj)
+            }
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit()
+                .putString(KEY_FAVORITES, arr.toString())
+                .apply()
+        } catch (_: Exception) {
+        }
+    }
+
+    fun loadAppliedPromo(context: Context): String? {
+        return try {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            prefs.getString(KEY_PROMO, null)?.ifBlank { null }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    fun saveAppliedPromo(context: Context, code: String?) {
+        try {
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit()
+                .putString(KEY_PROMO, code.orEmpty())
+                .apply()
+        } catch (_: Exception) {
         }
     }
 }

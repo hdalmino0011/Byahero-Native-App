@@ -48,7 +48,6 @@ export const OrderHistoryPanel: React.FC<OrderHistoryPanelProps> = ({
 
   return (
     <div className="space-y-4">
-      {/* Summary Header Cards */}
       <div className="grid grid-cols-2 gap-2.5">
         <div className="p-3.5 rounded-2xl glass-green text-white">
           <div className="text-[11px] font-medium text-emerald-100">Completed Orders</div>
@@ -70,7 +69,6 @@ export const OrderHistoryPanel: React.FC<OrderHistoryPanelProps> = ({
         </div>
       </div>
 
-      {/* Filter Bar */}
       <div className="grid grid-cols-3 gap-1.5 p-1 rounded-2xl bg-[#EBF1ED]/90 border border-[#0F522B]/10">
         {([
           {id: 'all', label: 'All'},
@@ -95,7 +93,6 @@ export const OrderHistoryPanel: React.FC<OrderHistoryPanelProps> = ({
         })}
       </div>
 
-      {/* Orders List */}
       {filteredOrders.length === 0 ? (
         <div className="p-5 rounded-2xl glass-surface text-center space-y-1.5">
           <div className="text-xs font-bold text-[#101713]">No orders in this view</div>
@@ -127,7 +124,8 @@ export const OrderHistoryPanel: React.FC<OrderHistoryPanelProps> = ({
                       </div>
                       <div className="text-[10px] text-[#55625A] inline-flex items-center gap-1">
                         <Clock className="w-3 h-3" />
-                        {formatTimestamp(order.createdAt)}
+                        {formatTimestamp(order.createdAt)} ·{' '}
+                        {order.paymentMethodLabel || 'Cash'}
                       </div>
                     </div>
                   </div>

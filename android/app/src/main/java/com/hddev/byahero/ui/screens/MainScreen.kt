@@ -8,7 +8,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -33,23 +32,33 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.BeachAccess
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CreditCard
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Fastfood
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.LocalOffer
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Navigation
+import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Percent
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SupportAgent
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.TwoWheeler
 import androidx.compose.material3.Button
@@ -82,6 +91,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -100,10 +110,14 @@ import com.google.maps.android.compose.rememberCameraPositionState
 import com.hddev.byahero.R
 import com.hddev.byahero.data.ActiveMode
 import com.hddev.byahero.data.ActiveRide
+import com.hddev.byahero.data.FavoriteDestination
 import com.hddev.byahero.data.NearbySpot
 import com.hddev.byahero.data.OrderHistoryStore
+import com.hddev.byahero.data.PaymentMethodType
 import com.hddev.byahero.data.PlaceSearchHelper
 import com.hddev.byahero.data.RideStatus
+import com.hddev.byahero.data.SavedPaymentMethod
+import com.hddev.byahero.data.SupportTicketItem
 import com.hddev.byahero.data.UserProfile
 import com.hddev.byahero.data.UserRole
 import com.hddev.byahero.data.VehicleType
@@ -123,6 +137,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Calendar
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 private enum class MapPickMode {
@@ -135,6 +150,15 @@ private enum class FocusedStopField {
     NONE,
     PICKUP,
     DESTINATION
+}
+
+private enum class SettingsSubTab {
+    ACCOUNT,
+    FAVORITES,
+    PAYMENTS,
+    PROMOS,
+    SUPPORT,
+    ABOUT
 }
 
 @SuppressLint("MissingPermission")
@@ -151,6 +175,7 @@ fun MainScreen(
     var selectedTab by remember(profile.id) {
         mutableStateOf(if (profile.activeMode == ActiveMode.RIDER) 3 else 0)
     }
+    var settingsSubTab by remember { mutableStateOf(SettingsSubTab.ACCOUNT) }
     var fullMapExpanded by remember { mutableStateOf(false) }
 
     var userLocation by remember { mutableStateOf(LatLng(14.5995, 120.9842)) }
@@ -198,6 +223,98 @@ fun MainScreen(
         mutableStateOf(OrderHistoryStore.load(context, profile.fullName))
     }
     var historyFilter by remember { mutableStateOf("all") }
+
+    var paymentMethods by remember {
+        mutableStateOf(OrderHistoryStore.loadPaymentMethods(context))
+    }
+    var selectedPaymentId by remember {
+        val def = paymentMethods.firstOrNull { it.isDefault } ?: paymentMethods.firstOrNull()
+        mutableStateOf(def?.id ?: "pm_cash")
+    }
+    var favorites by remember {
+        mutableStateOf(OrderHistoryStore.loadFavorites(context))
+    }
+    val availablePromos = remember { OrderHistoryStore.defaultPromoCodes() }
+    var appliedPromoCode by remember {
+        mutableStateOf(OrderHistoryStore.loadAppliedPromo(context))
+    }
+
+    var addingPaymentForm by remember { mutableStateOf<PaymentMethodType?>(null) }
+    var gcashNumberInput by remember { mutableStateOf("") }
+    var gcashNameInput by remember { mutableStateOf("") }
+    var cardHolderInput by remember { mutableStateOf("") }
+    var cardNumberInput by remember { mutableStateOf("") }
+    var cardExpiryInput by remember { mutableStateOf("") }
+    var cardCvvInput by remember { mutableStateOf("") }
+    var paymentStatusMessage by remember { mutableStateOf<String?>(null) }
+
+    var newFavNameInput by remember { mutableStateOf("") }
+    var newFavAddressInput by remember { mutableStateOf("") }
+    var promoCodeInput by remember { mutableStateOf("") }
+    var promoFeedbackMessage by remember { mutableStateOf<String?>(null) }
+
+    var supportCategory by remember { mutableStateOf("Trip & Fare Assistance") }
+    var supportMessageInput by remember { mutableStateOf("") }
+    var supportFeedback by remember { mutableStateOf<String?>(null) }
+    var supportTickets by remember {
+        mutableStateOf(
+            listOf(
+                SupportTicketItem(
+                    id = "TKT-2041",
+                    category = "Payment & GCash Inquiry",
+                    message = "Verified GCash instant settlement for weekend trips.",
+                    status = "Resolved",
+                    createdAt = "2d ago"
+                )
+            )
+        )
+    }
+
+    val selectedPaymentMethod = paymentMethods.firstOrNull { it.id == selectedPaymentId }
+        ?: paymentMethods.firstOrNull()
+        ?: SavedPaymentMethod(
+            id = "pm_cash",
+            type = PaymentMethodType.CASH,
+            label = "Cash",
+            subtitle = "Pay rider directly upon arrival",
+            isDefault = true
+        )
+    val savedGcashMethod = paymentMethods.firstOrNull { it.type == PaymentMethodType.GCASH }
+    val savedCardMethod = paymentMethods.firstOrNull { it.type == PaymentMethodType.CARD }
+
+    fun selectPaymentMethod(id: String) {
+        selectedPaymentId = id
+        val updated = paymentMethods.map { it.copy(isDefault = it.id == id) }
+        paymentMethods = updated
+        OrderHistoryStore.savePaymentMethods(context, updated)
+    }
+
+    fun addAndSelectPaymentMethod(newMethod: SavedPaymentMethod) {
+        val updated = paymentMethods.map { it.copy(isDefault = false) } + newMethod.copy(isDefault = true)
+        paymentMethods = updated
+        selectedPaymentId = newMethod.id
+        OrderHistoryStore.savePaymentMethods(context, updated)
+    }
+
+    fun removePaymentMethod(id: String) {
+        val remaining = paymentMethods.filter { it.id != id }
+        val finalMethods = if (remaining.isEmpty()) OrderHistoryStore.defaultPaymentMethods() else remaining
+        paymentMethods = finalMethods
+        if (selectedPaymentId == id) {
+            selectedPaymentId = finalMethods.first().id
+        }
+        OrderHistoryStore.savePaymentMethods(context, finalMethods)
+    }
+
+    fun updateFavoritesList(next: List<FavoriteDestination>) {
+        favorites = next
+        OrderHistoryStore.saveFavorites(context, next)
+    }
+
+    fun updateAppliedPromo(code: String?) {
+        appliedPromoCode = code
+        OrderHistoryStore.saveAppliedPromo(context, code)
+    }
 
     LaunchedEffect(locationError) {
         if (locationError != null) {
@@ -253,14 +370,12 @@ fun MainScreen(
         OrderHistoryStore.save(context, updated)
     }
 
-    // Direct Stop Search State inside Booking Card
     var focusedStopField by remember { mutableStateOf(FocusedStopField.NONE) }
     var pickupInputQuery by remember { mutableStateOf("") }
     var destInputQuery by remember { mutableStateOf("") }
     var inlineStopResults by remember { mutableStateOf<List<NearbySpot>>(emptyList()) }
     var isSearchingStop by remember { mutableStateOf(false) }
 
-    // Resolving real GPS place name on startup / location grant
     LaunchedEffect(hasLocationPermission) {
         if (hasLocationPermission) {
             val fused = LocationServices.getFusedLocationProviderClient(context)
@@ -306,7 +421,6 @@ fun MainScreen(
         }
     }
 
-    // Debounced live search when typing inside Pickup or Destination field
     val activeStopSearchQuery = when (focusedStopField) {
         FocusedStopField.PICKUP -> pickupInputQuery
         FocusedStopField.DESTINATION -> destInputQuery
@@ -333,7 +447,6 @@ fun MainScreen(
     var saturdayPreview by remember { mutableStateOf(actualSaturday) }
     val isSaturdayPromo = actualSaturday || saturdayPreview
 
-    // Top Map Search Bar + Quick Picker
     var mapSearchQuery by remember { mutableStateOf("") }
     var mapSearchDropdownResults by remember { mutableStateOf<List<NearbySpot>>(emptyList()) }
     var showMapSearchDropdown by remember { mutableStateOf(false) }
@@ -359,7 +472,8 @@ fun MainScreen(
                 distanceKm = 6.4,
                 durationMins = 19,
                 fare = ByaheroNativeEngine.computeFareQuote(6.4, VehicleType.MOTORCYCLE, isSaturdayPromo),
-                status = RideStatus.SEARCHING
+                status = RideStatus.SEARCHING,
+                paymentMethodLabel = "Cash"
             ),
             ActiveRide(
                 id = "req_102",
@@ -374,7 +488,8 @@ fun MainScreen(
                 distanceKm = 8.2,
                 durationMins = 24,
                 fare = ByaheroNativeEngine.computeFareQuote(8.2, VehicleType.TAXI, isSaturdayPromo),
-                status = RideStatus.SEARCHING
+                status = RideStatus.SEARCHING,
+                paymentMethodLabel = "GCash"
             )
         )
     }
@@ -411,9 +526,21 @@ fun MainScreen(
         }
     }
 
-    val fareQuote = remember(routeDistanceKm, selectedVehicle, isSaturdayPromo) {
+    val fareQuote = remember(routeDistanceKm, selectedVehicle, isSaturdayPromo, appliedPromoCode) {
         if (routeDistanceKm > 0.0) {
-            ByaheroNativeEngine.computeFareQuote(routeDistanceKm, selectedVehicle, isSaturdayPromo)
+            val baseQuote = ByaheroNativeEngine.computeFareQuote(routeDistanceKm, selectedVehicle, isSaturdayPromo)
+            val promo = availablePromos.firstOrNull { it.code == appliedPromoCode }
+            if (promo != null && !isSaturdayPromo) {
+                val discount = min(promo.maxDiscountPhp, baseQuote.subtotal * (promo.discountPercent / 100.0))
+                val nextFinal = max(30.0, baseQuote.subtotal - discount)
+                baseQuote.copy(
+                    passengerDiscount = discount,
+                    finalFare = nextFinal,
+                    isSaturdayPromo = true
+                )
+            } else {
+                baseQuote
+            }
         } else null
     }
 
@@ -506,11 +633,12 @@ fun MainScreen(
         }
     }
 
+    val firstName = profile.fullName.substringBefore(" ").ifBlank { "User" }
+
     Scaffold(
         containerColor = ByaheroCanvas,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            // Brand Top Header matching Web Preview
             Surface(
                 color = ByaheroGlassWhite,
                 shadowElevation = 2.dp
@@ -519,7 +647,7 @@ fun MainScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .statusBarsPadding()
-                        .height(52.dp)
+                        .height(54.dp)
                         .padding(horizontal = 14.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
@@ -545,46 +673,30 @@ fun MainScreen(
                         )
                     }
 
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    Surface(
+                        onClick = {
+                            settingsSubTab = SettingsSubTab.ACCOUNT
+                            selectedTab = 4
+                            fullMapExpanded = false
+                        },
+                        shape = CircleShape,
+                        color = ByaheroDarkGreen,
+                        shadowElevation = 3.dp,
+                        modifier = Modifier.size(38.dp)
                     ) {
-                        if (profile.role == UserRole.BOTH) {
-                            Surface(
-                                onClick = {
-                                    val next = if (profile.activeMode == ActiveMode.PASSENGER) ActiveMode.RIDER else ActiveMode.PASSENGER
-                                    onUpdateProfile(profile.copy(activeMode = next))
-                                    selectedTab = if (next == ActiveMode.RIDER) 3 else 0
-                                },
-                                shape = RoundedCornerShape(10.dp),
-                                color = ByaheroDarkGreen
-                            ) {
-                                Text(
-                                    text = if (profile.activeMode == ActiveMode.PASSENGER) "Passenger" else "Rider Mode",
-                                    fontFamily = PoppinsFontFamily,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = ByaheroWhite,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                                )
-                            }
-                        }
-                        Surface(
-                            onClick = {
-                                selectedTab = 4
-                                fullMapExpanded = false
-                            },
-                            shape = RoundedCornerShape(10.dp),
-                            color = ByaheroWhite,
-                            border = BorderStroke(1.dp, ByaheroBorder)
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier.padding(horizontal = 4.dp)
                         ) {
                             Text(
-                                text = profile.fullName.substringBefore(" ").ifBlank { "Account" },
+                                text = firstName,
                                 fontFamily = PoppinsFontFamily,
-                                fontSize = 11.sp,
+                                fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = ByaheroBlack,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                color = ByaheroWhite,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                textAlign = TextAlign.Center
                             )
                         }
                     }
@@ -635,8 +747,8 @@ fun MainScreen(
                 NavigationBarItem(
                     selected = selectedTab == 4,
                     onClick = { selectedTab = 4; fullMapExpanded = false },
-                    icon = { Icon(Icons.Default.Person, contentDescription = "Account") },
-                    label = { Text("Account", fontFamily = PoppinsFontFamily, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false) },
+                    icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
+                    label = { Text("Settings", fontFamily = PoppinsFontFamily, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false) },
                     colors = navColors
                 )
             }
@@ -647,7 +759,6 @@ fun MainScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            // Live Map Viewport
             val mapWeight = when {
                 fullMapExpanded -> 1f
                 selectedTab == 0 || selectedTab == 1 -> 0.42f
@@ -718,7 +829,6 @@ fun MainScreen(
                     )
                 }
 
-                // Floating Frosted Search Bar & Place Picker Dropdown
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -806,7 +916,6 @@ fun MainScreen(
                         }
                     }
 
-                    // Search Results Picker: Set any searched location as Pickup or Destination
                     if (showMapSearchDropdown) {
                         Surface(
                             shape = RoundedCornerShape(16.dp),
@@ -888,14 +997,10 @@ fun MainScreen(
                                                     if (trySetPickup(LatLng(spot.lat, spot.lng), spot.name)) {
                                                         focusTarget = LatLng(spot.lat, spot.lng)
                                                         focusSeq++
-                                                        showMapSearchDropdown = false
-                                                        selectedTab = 0
-                                                        fullMapExpanded = false
-                                                    } else {
-                                                        showMapSearchDropdown = false
-                                                        selectedTab = 0
-                                                        fullMapExpanded = false
                                                     }
+                                                    showMapSearchDropdown = false
+                                                    selectedTab = 0
+                                                    fullMapExpanded = false
                                                 },
                                                 modifier = Modifier
                                                     .weight(1f)
@@ -916,14 +1021,10 @@ fun MainScreen(
                                                     if (trySetDestination(LatLng(spot.lat, spot.lng), spot.name)) {
                                                         focusTarget = LatLng(spot.lat, spot.lng)
                                                         focusSeq++
-                                                        showMapSearchDropdown = false
-                                                        selectedTab = 0
-                                                        fullMapExpanded = false
-                                                    } else {
-                                                        showMapSearchDropdown = false
-                                                        selectedTab = 0
-                                                        fullMapExpanded = false
                                                     }
+                                                    showMapSearchDropdown = false
+                                                    selectedTab = 0
+                                                    fullMapExpanded = false
                                                 },
                                                 modifier = Modifier
                                                     .weight(1f)
@@ -1193,7 +1294,6 @@ fun MainScreen(
                 }
             }
 
-            // Sheet Handle Bar matching Web Preview ("Book Motorcycle or Taxi" | "Full Map")
             Surface(
                 color = ByaheroWhite,
                 shadowElevation = 4.dp
@@ -1211,7 +1311,7 @@ fun MainScreen(
                             1 -> "Fast Food & Resorts Nearby"
                             2 -> "Order History"
                             3 -> "Rider Dispatch (+5% Bonus)"
-                            else -> "Account & Role"
+                            else -> "App Settings"
                         },
                         fontFamily = PoppinsFontFamily,
                         fontSize = 12.sp,
@@ -1246,7 +1346,6 @@ fun MainScreen(
                 }
             }
 
-            // Sheet Content
             if (!fullMapExpanded) {
                 Surface(
                     modifier = Modifier
@@ -1263,7 +1362,6 @@ fun MainScreen(
                     ) {
                         when (selectedTab) {
                             0 -> {
-                                // Saturday 10% + 5% Banner matching Web Preview
                                 Surface(
                                     shape = RoundedCornerShape(16.dp),
                                     color = ByaheroDarkGreen
@@ -1367,10 +1465,8 @@ fun MainScreen(
                                         }
                                     )
                                 } else {
-                                    // Searchable Pickup & Destination Cards + Floating Swap Circle Button
                                     Box(modifier = Modifier.fillMaxWidth()) {
                                         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                            // Pickup Input Card
                                             Surface(
                                                 shape = RoundedCornerShape(16.dp),
                                                 color = ByaheroWhite,
@@ -1492,7 +1588,6 @@ fun MainScreen(
                                                 }
                                             }
 
-                                            // Destination Input Card
                                             Surface(
                                                 shape = RoundedCornerShape(16.dp),
                                                 color = ByaheroWhite,
@@ -1560,6 +1655,25 @@ fun MainScreen(
                                                             )
                                                         }
                                                     }
+                                                    if (destLatLng != null && destLabel.isNotBlank()) {
+                                                        val alreadySaved = favorites.any {
+                                                            it.label.equals(destLabel, ignoreCase = true)
+                                                        }
+                                                        if (!alreadySaved) {
+                                                            SmallChipButton("Save") {
+                                                                val d = destLatLng ?: return@SmallChipButton
+                                                                val added = FavoriteDestination(
+                                                                    id = "fav_${System.currentTimeMillis()}",
+                                                                    label = destLabel,
+                                                                    address = destLabel,
+                                                                    lat = d.latitude,
+                                                                    lng = d.longitude,
+                                                                    ordersCount = 1
+                                                                )
+                                                                updateFavoritesList(listOf(added) + favorites)
+                                                            }
+                                                        }
+                                                    }
                                                     if (focusedStopField == FocusedStopField.DESTINATION && destInputQuery.isNotEmpty()) {
                                                         IconButton(
                                                             onClick = { destInputQuery = "" },
@@ -1582,7 +1696,6 @@ fun MainScreen(
                                             }
                                         }
 
-                                        // Floating Circular Swap Button matching Web Screenshot
                                         if (destLatLng != null) {
                                             Surface(
                                                 onClick = {
@@ -1616,7 +1729,29 @@ fun MainScreen(
                                         }
                                     }
 
-                                    // Inline Search Suggestions Dropdown when typing inside Pickup or Destination
+                                    if (favorites.isNotEmpty()) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .horizontalScroll(rememberScrollState()),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Text(
+                                                text = "Favorites:",
+                                                fontFamily = PoppinsFontFamily,
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = ByaheroMuted
+                                            )
+                                            favorites.take(5).forEach { fav ->
+                                                SmallChipButton(fav.label) {
+                                                    trySetDestination(LatLng(fav.lat, fav.lng), fav.label)
+                                                }
+                                            }
+                                        }
+                                    }
+
                                     if (focusedStopField != FocusedStopField.NONE && (inlineStopResults.isNotEmpty() || isSearchingStop)) {
                                         Surface(
                                             shape = RoundedCornerShape(16.dp),
@@ -1732,7 +1867,6 @@ fun MainScreen(
                                         }
                                     }
 
-                                    // Vector Motorcycle & Taxi Selection Cards matching Web Preview
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -1755,6 +1889,300 @@ fun MainScreen(
                                             selected = selectedVehicle == VehicleType.TAXI,
                                             onClick = { selectedVehicle = VehicleType.TAXI }
                                         )
+                                    }
+
+                                    Surface(
+                                        shape = RoundedCornerShape(16.dp),
+                                        color = ByaheroWhite,
+                                        border = BorderStroke(1.dp, ByaheroBorder)
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.padding(12.dp),
+                                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = "Payment Method",
+                                                    fontFamily = PoppinsFontFamily,
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = ByaheroBlack
+                                                )
+                                                Text(
+                                                    text = "Manage in Settings",
+                                                    fontFamily = PoppinsFontFamily,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = ByaheroDarkGreen,
+                                                    modifier = Modifier.clickable {
+                                                        settingsSubTab = SettingsSubTab.PAYMENTS
+                                                        selectedTab = 4
+                                                    }
+                                                )
+                                            }
+
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                PaymentTypeOptionCard(
+                                                    modifier = Modifier.weight(1f),
+                                                    title = "Cash",
+                                                    subtitle = "Pay directly",
+                                                    selected = selectedPaymentMethod.type == PaymentMethodType.CASH && addingPaymentForm == null,
+                                                    onClick = {
+                                                        addingPaymentForm = null
+                                                        paymentStatusMessage = null
+                                                        val cashItem = paymentMethods.firstOrNull { it.type == PaymentMethodType.CASH }
+                                                        if (cashItem != null) selectPaymentMethod(cashItem.id)
+                                                    }
+                                                )
+                                                PaymentTypeOptionCard(
+                                                    modifier = Modifier.weight(1f),
+                                                    title = "GCash",
+                                                    subtitle = savedGcashMethod?.let { "•••• ${it.accountNumberOrLast4}" } ?: "+ Connect",
+                                                    selected = selectedPaymentMethod.type == PaymentMethodType.GCASH || addingPaymentForm == PaymentMethodType.GCASH,
+                                                    onClick = {
+                                                        paymentStatusMessage = null
+                                                        if (savedGcashMethod != null) {
+                                                            selectPaymentMethod(savedGcashMethod.id)
+                                                            addingPaymentForm = null
+                                                        } else {
+                                                            addingPaymentForm = PaymentMethodType.GCASH
+                                                        }
+                                                    }
+                                                )
+                                                PaymentTypeOptionCard(
+                                                    modifier = Modifier.weight(1f),
+                                                    title = "Card",
+                                                    subtitle = savedCardMethod?.let { "•••• ${it.accountNumberOrLast4}" } ?: "+ Register",
+                                                    selected = selectedPaymentMethod.type == PaymentMethodType.CARD || addingPaymentForm == PaymentMethodType.CARD,
+                                                    onClick = {
+                                                        paymentStatusMessage = null
+                                                        if (savedCardMethod != null) {
+                                                            selectPaymentMethod(savedCardMethod.id)
+                                                            addingPaymentForm = null
+                                                        } else {
+                                                            addingPaymentForm = PaymentMethodType.CARD
+                                                        }
+                                                    }
+                                                )
+                                            }
+
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = "Active: ${selectedPaymentMethod.label}",
+                                                    fontFamily = PoppinsFontFamily,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = ByaheroDarkGreen,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                                    Text(
+                                                        text = "+ GCash",
+                                                        fontFamily = PoppinsFontFamily,
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = ByaheroDarkGreen,
+                                                        modifier = Modifier.clickable {
+                                                            addingPaymentForm = if (addingPaymentForm == PaymentMethodType.GCASH) null else PaymentMethodType.GCASH
+                                                        }
+                                                    )
+                                                    Text(
+                                                        text = "+ Card",
+                                                        fontFamily = PoppinsFontFamily,
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = ByaheroDarkGreen,
+                                                        modifier = Modifier.clickable {
+                                                            addingPaymentForm = if (addingPaymentForm == PaymentMethodType.CARD) null else PaymentMethodType.CARD
+                                                        }
+                                                    )
+                                                }
+                                            }
+
+                                            if (addingPaymentForm == PaymentMethodType.GCASH) {
+                                                HorizontalDivider(color = ByaheroBorder)
+                                                Text(
+                                                    text = "Connect & Save GCash Account",
+                                                    fontFamily = PoppinsFontFamily,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = ByaheroDarkGreen
+                                                )
+                                                InlineTextField(
+                                                    value = gcashNumberInput,
+                                                    onValueChange = { gcashNumberInput = it },
+                                                    placeholder = "GCash Mobile Number (09XX XXX XXXX)"
+                                                )
+                                                InlineTextField(
+                                                    value = gcashNameInput,
+                                                    onValueChange = { gcashNameInput = it },
+                                                    placeholder = "Account Full Name"
+                                                )
+                                                paymentStatusMessage?.let { msg ->
+                                                    Text(
+                                                        text = msg,
+                                                        fontFamily = PoppinsFontFamily,
+                                                        fontSize = 10.sp,
+                                                        color = Color(0xFFB91C1C)
+                                                    )
+                                                }
+                                                Button(
+                                                    onClick = {
+                                                        val digits = gcashNumberInput.filter { it.isDigit() }
+                                                        if (digits.length < 10) {
+                                                            paymentStatusMessage = "Enter a valid 11-digit GCash mobile number."
+                                                            return@Button
+                                                        }
+                                                        val last4 = digits.takeLast(4)
+                                                        val holder = gcashNameInput.trim().ifBlank { profile.fullName }
+                                                        addAndSelectPaymentMethod(
+                                                            SavedPaymentMethod(
+                                                                id = "pm_gcash_${System.currentTimeMillis()}",
+                                                                type = PaymentMethodType.GCASH,
+                                                                label = "GCash (•••• $last4)",
+                                                                subtitle = "$holder · Connected GCash",
+                                                                accountNumberOrLast4 = last4,
+                                                                holderName = holder,
+                                                                isDefault = true
+                                                            )
+                                                        )
+                                                        gcashNumberInput = ""
+                                                        gcashNameInput = ""
+                                                        paymentStatusMessage = null
+                                                        addingPaymentForm = null
+                                                    },
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .height(38.dp),
+                                                    shape = RoundedCornerShape(10.dp),
+                                                    colors = ButtonDefaults.buttonColors(
+                                                        containerColor = ByaheroDarkGreen,
+                                                        contentColor = ByaheroWhite
+                                                    )
+                                                ) {
+                                                    Text(
+                                                        text = "Connect & Save GCash",
+                                                        fontFamily = PoppinsFontFamily,
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+                                            }
+
+                                            if (addingPaymentForm == PaymentMethodType.CARD) {
+                                                HorizontalDivider(color = ByaheroBorder)
+                                                Text(
+                                                    text = "Register & Save Credit / Debit Card",
+                                                    fontFamily = PoppinsFontFamily,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = ByaheroDarkGreen
+                                                )
+                                                InlineTextField(
+                                                    value = cardHolderInput,
+                                                    onValueChange = { cardHolderInput = it },
+                                                    placeholder = "Cardholder Full Name"
+                                                )
+                                                InlineTextField(
+                                                    value = cardNumberInput,
+                                                    onValueChange = { cardNumberInput = it },
+                                                    placeholder = "16-Digit Card Number"
+                                                )
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                ) {
+                                                    Box(modifier = Modifier.weight(1f)) {
+                                                        InlineTextField(
+                                                            value = cardExpiryInput,
+                                                            onValueChange = { cardExpiryInput = it },
+                                                            placeholder = "Expiry MM/YY"
+                                                        )
+                                                    }
+                                                    Box(modifier = Modifier.weight(1f)) {
+                                                        InlineTextField(
+                                                            value = cardCvvInput,
+                                                            onValueChange = { cardCvvInput = it },
+                                                            placeholder = "CVV"
+                                                        )
+                                                    }
+                                                }
+                                                paymentStatusMessage?.let { msg ->
+                                                    Text(
+                                                        text = msg,
+                                                        fontFamily = PoppinsFontFamily,
+                                                        fontSize = 10.sp,
+                                                        color = Color(0xFFB91C1C)
+                                                    )
+                                                }
+                                                Button(
+                                                    onClick = {
+                                                        val digits = cardNumberInput.filter { it.isDigit() }
+                                                        if (digits.length < 12) {
+                                                            paymentStatusMessage = "Enter a valid 16-digit card number."
+                                                            return@Button
+                                                        }
+                                                        if (cardExpiryInput.isBlank() || cardCvvInput.filter { it.isDigit() }.length < 3) {
+                                                            paymentStatusMessage = "Enter expiry (MM/YY) and 3-digit CVV."
+                                                            return@Button
+                                                        }
+                                                        val last4 = digits.takeLast(4)
+                                                        val brand = when {
+                                                            digits.startsWith("4") -> "Visa"
+                                                            digits.startsWith("5") -> "Mastercard"
+                                                            else -> "Card"
+                                                        }
+                                                        val holder = cardHolderInput.trim().ifBlank { profile.fullName }
+                                                        addAndSelectPaymentMethod(
+                                                            SavedPaymentMethod(
+                                                                id = "pm_card_${System.currentTimeMillis()}",
+                                                                type = PaymentMethodType.CARD,
+                                                                label = "$brand •••• $last4",
+                                                                subtitle = "$holder · Exp ${cardExpiryInput.trim()}",
+                                                                accountNumberOrLast4 = last4,
+                                                                holderName = holder,
+                                                                expiry = cardExpiryInput.trim(),
+                                                                isDefault = true
+                                                            )
+                                                        )
+                                                        cardHolderInput = ""
+                                                        cardNumberInput = ""
+                                                        cardExpiryInput = ""
+                                                        cardCvvInput = ""
+                                                        paymentStatusMessage = null
+                                                        addingPaymentForm = null
+                                                    },
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .height(38.dp),
+                                                    shape = RoundedCornerShape(10.dp),
+                                                    colors = ButtonDefaults.buttonColors(
+                                                        containerColor = ByaheroDarkGreen,
+                                                        contentColor = ByaheroWhite
+                                                    )
+                                                ) {
+                                                    Text(
+                                                        text = "Register & Save Card",
+                                                        fontFamily = PoppinsFontFamily,
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+                                            }
+                                        }
                                     }
 
                                     val stopsMatchNow = destLatLng?.let { d ->
@@ -1795,6 +2223,15 @@ fun MainScreen(
                                                         fontSize = 11.sp,
                                                         color = ByaheroDarkGreen
                                                     )
+                                                    appliedPromoCode?.let { code ->
+                                                        Text(
+                                                            text = "Promo $code applied",
+                                                            fontFamily = PoppinsFontFamily,
+                                                            fontSize = 10.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = ByaheroEmerald
+                                                        )
+                                                    }
                                                 }
                                                 Column(horizontalAlignment = Alignment.End) {
                                                     Text(
@@ -1806,7 +2243,7 @@ fun MainScreen(
                                                     )
                                                     if (fareQuote.passengerDiscount > 0) {
                                                         Text(
-                                                            text = String.format("-10%% Sat (Saved P%.2f)", fareQuote.passengerDiscount),
+                                                            text = String.format("Saved P%.2f", fareQuote.passengerDiscount),
                                                             fontFamily = PoppinsFontFamily,
                                                             fontSize = 10.sp,
                                                             fontWeight = FontWeight.SemiBold,
@@ -1839,8 +2276,16 @@ fun MainScreen(
                                                     fare = fareQuote,
                                                     status = RideStatus.SEARCHING,
                                                     createdAtLabel = OrderHistoryStore.currentTimeLabel(),
-                                                    roleContext = "passenger"
+                                                    roleContext = "passenger",
+                                                    paymentMethodLabel = selectedPaymentMethod.label,
+                                                    promoCode = appliedPromoCode
                                                 )
+                                                val updatedFavs = favorites.map { f ->
+                                                    if (f.label.equals(destLabel, ignoreCase = true)) {
+                                                        f.copy(ordersCount = f.ordersCount + 1)
+                                                    } else f
+                                                }
+                                                updateFavoritesList(updatedFavs)
                                             },
                                             modifier = Modifier
                                                 .fillMaxWidth()
@@ -1853,13 +2298,16 @@ fun MainScreen(
                                         ) {
                                             Text(
                                                 text = String.format(
-                                                    "Book %s · P%.2f",
+                                                    "Book %s (%s) · P%.2f",
                                                     if (selectedVehicle == VehicleType.MOTORCYCLE) "Moto" else "Taxi",
+                                                    selectedPaymentMethod.label,
                                                     fareQuote.finalFare
                                                 ),
                                                 fontFamily = PoppinsFontFamily,
-                                                fontSize = 14.sp,
-                                                fontWeight = FontWeight.Bold
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
                                             )
                                         }
                                     }
@@ -2241,7 +2689,7 @@ fun MainScreen(
                                                                 color = ByaheroBlack
                                                             )
                                                             Text(
-                                                                text = item.createdAtLabel,
+                                                                text = "${item.createdAtLabel} · ${item.paymentMethodLabel}",
                                                                 fontFamily = PoppinsFontFamily,
                                                                 fontSize = 10.sp,
                                                                 color = ByaheroMuted
@@ -2630,7 +3078,7 @@ fun MainScreen(
                                                                 color = ByaheroBlack
                                                             )
                                                             Text(
-                                                                text = "${req.vehicleType.name.lowercase().replaceFirstChar { it.uppercase() }} · ${String.format("%.1f km", req.distanceKm)}",
+                                                                text = "${req.vehicleType.name.lowercase().replaceFirstChar { it.uppercase() }} · ${String.format("%.1f km", req.distanceKm)} · ${req.paymentMethodLabel}",
                                                                 fontFamily = PoppinsFontFamily,
                                                                 fontSize = 11.sp,
                                                                 color = ByaheroMuted
@@ -2697,188 +3145,1169 @@ fun MainScreen(
 
                             4 -> {
                                 Surface(
-                                    shape = RoundedCornerShape(18.dp),
-                                    color = ByaheroDarkGreen
+                                    shape = RoundedCornerShape(16.dp),
+                                    color = ByaheroSubtleGlass,
+                                    border = BorderStroke(1.dp, ByaheroBorder)
                                 ) {
                                     Column(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(16.dp),
-                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                            .padding(6.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
-                                        Text(
-                                            text = profile.fullName,
-                                            fontFamily = PoppinsFontFamily,
-                                            fontSize = 18.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = ByaheroWhite
-                                        )
-                                        Text(
-                                            text = profile.email,
-                                            fontFamily = PoppinsFontFamily,
-                                            fontSize = 12.sp,
-                                            color = Color(0xFFD1FAE5)
-                                        )
-                                        Text(
-                                            text = if (profile.authProvider == "google") "Google Account Connected" else "Registered BYAHERO Member",
-                                            fontFamily = PoppinsFontFamily,
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Medium,
-                                            color = Color(0xFFA7F3D0)
-                                        )
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            SettingsSubTabButton(
+                                                modifier = Modifier.weight(1f),
+                                                label = "Account",
+                                                icon = Icons.Default.Person,
+                                                selected = settingsSubTab == SettingsSubTab.ACCOUNT
+                                            ) { settingsSubTab = SettingsSubTab.ACCOUNT }
+                                            SettingsSubTabButton(
+                                                modifier = Modifier.weight(1f),
+                                                label = "Favorites",
+                                                icon = Icons.Default.Bookmark,
+                                                selected = settingsSubTab == SettingsSubTab.FAVORITES
+                                            ) { settingsSubTab = SettingsSubTab.FAVORITES }
+                                            SettingsSubTabButton(
+                                                modifier = Modifier.weight(1f),
+                                                label = "Payments",
+                                                icon = Icons.Default.CreditCard,
+                                                selected = settingsSubTab == SettingsSubTab.PAYMENTS
+                                            ) { settingsSubTab = SettingsSubTab.PAYMENTS }
+                                        }
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            SettingsSubTabButton(
+                                                modifier = Modifier.weight(1f),
+                                                label = "Promo Codes",
+                                                icon = Icons.Default.LocalOffer,
+                                                selected = settingsSubTab == SettingsSubTab.PROMOS
+                                            ) { settingsSubTab = SettingsSubTab.PROMOS }
+                                            SettingsSubTabButton(
+                                                modifier = Modifier.weight(1f),
+                                                label = "Support",
+                                                icon = Icons.Default.SupportAgent,
+                                                selected = settingsSubTab == SettingsSubTab.SUPPORT
+                                            ) { settingsSubTab = SettingsSubTab.SUPPORT }
+                                            SettingsSubTabButton(
+                                                modifier = Modifier.weight(1f),
+                                                label = "About",
+                                                icon = Icons.Default.Info,
+                                                selected = settingsSubTab == SettingsSubTab.ABOUT
+                                            ) { settingsSubTab = SettingsSubTab.ABOUT }
+                                        }
                                     }
                                 }
 
-                                Surface(
-                                    shape = RoundedCornerShape(16.dp),
-                                    color = ByaheroWhite,
-                                    border = BorderStroke(1.dp, ByaheroBorder)
-                                ) {
-                                    Column(
-                                        modifier = Modifier.padding(14.dp),
-                                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                                    ) {
-                                        Text(
-                                            text = "Account Role",
-                                            fontFamily = PoppinsFontFamily,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Bold,
+                                when (settingsSubTab) {
+                                    SettingsSubTab.ACCOUNT -> {
+                                        Surface(
+                                            shape = RoundedCornerShape(18.dp),
                                             color = ByaheroDarkGreen
-                                        )
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
-                                            listOf(
-                                                UserRole.PASSENGER to "Passenger",
-                                                UserRole.RIDER to "Rider",
-                                                UserRole.BOTH to "Both"
-                                            ).forEach { (role, label) ->
-                                                val active = profile.role == role
-                                                Box(
-                                                    modifier = Modifier
-                                                        .weight(1f)
-                                                        .height(40.dp)
-                                                        .clip(RoundedCornerShape(10.dp))
-                                                        .background(if (active) ByaheroDarkGreen else ByaheroSubtleGlass)
-                                                        .clickable {
-                                                            val nextMode = when (role) {
-                                                                UserRole.RIDER -> ActiveMode.RIDER
-                                                                UserRole.PASSENGER -> ActiveMode.PASSENGER
-                                                                UserRole.BOTH -> profile.activeMode
-                                                            }
-                                                            onUpdateProfile(
-                                                                profile.copy(
-                                                                    role = role,
-                                                                    activeMode = nextMode,
-                                                                    isOnline = role != UserRole.PASSENGER
-                                                                )
-                                                            )
-                                                        },
-                                                    contentAlignment = Alignment.Center
+                                            Column(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(16.dp),
+                                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                Text(
+                                                    text = profile.fullName,
+                                                    fontFamily = PoppinsFontFamily,
+                                                    fontSize = 18.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = ByaheroWhite
+                                                )
+                                                Text(
+                                                    text = profile.email,
+                                                    fontFamily = PoppinsFontFamily,
+                                                    fontSize = 12.sp,
+                                                    color = Color(0xFFD1FAE5)
+                                                )
+                                                Text(
+                                                    text = if (profile.authProvider == "google") "Google Account Connected" else "Registered BYAHERO Member",
+                                                    fontFamily = PoppinsFontFamily,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                    color = Color(0xFFA7F3D0)
+                                                )
+                                            }
+                                        }
+
+                                        Surface(
+                                            shape = RoundedCornerShape(16.dp),
+                                            color = ByaheroWhite,
+                                            border = BorderStroke(1.dp, ByaheroBorder)
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(14.dp),
+                                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                                            ) {
+                                                Text(
+                                                    text = "Account Role",
+                                                    fontFamily = PoppinsFontFamily,
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = ByaheroDarkGreen
+                                                )
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                                 ) {
+                                                    listOf(
+                                                        UserRole.PASSENGER to "Passenger",
+                                                        UserRole.RIDER to "Rider",
+                                                        UserRole.BOTH to "Both"
+                                                    ).forEach { (role, label) ->
+                                                        val active = profile.role == role
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .weight(1f)
+                                                                .height(40.dp)
+                                                                .clip(RoundedCornerShape(10.dp))
+                                                                .background(if (active) ByaheroDarkGreen else ByaheroSubtleGlass)
+                                                                .clickable {
+                                                                    val nextMode = when (role) {
+                                                                        UserRole.RIDER -> ActiveMode.RIDER
+                                                                        UserRole.PASSENGER -> ActiveMode.PASSENGER
+                                                                        UserRole.BOTH -> profile.activeMode
+                                                                    }
+                                                                    onUpdateProfile(
+                                                                        profile.copy(
+                                                                            role = role,
+                                                                            activeMode = nextMode,
+                                                                            isOnline = role != UserRole.PASSENGER
+                                                                        )
+                                                                    )
+                                                                },
+                                                            contentAlignment = Alignment.Center
+                                                        ) {
+                                                            Text(
+                                                                text = label,
+                                                                fontFamily = PoppinsFontFamily,
+                                                                fontSize = 12.sp,
+                                                                fontWeight = FontWeight.SemiBold,
+                                                                color = if (active) ByaheroWhite else ByaheroBlack
+                                                            )
+                                                        }
+                                                    }
+                                                }
+
+                                                if (profile.role == UserRole.BOTH) {
                                                     Text(
-                                                        text = label,
+                                                        text = "Active Mode",
                                                         fontFamily = PoppinsFontFamily,
                                                         fontSize = 12.sp,
-                                                        fontWeight = FontWeight.SemiBold,
-                                                        color = if (active) ByaheroWhite else ByaheroBlack
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = ByaheroMuted
+                                                    )
+                                                    Row(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                    ) {
+                                                        listOf(
+                                                            ActiveMode.PASSENGER to "Passenger Mode",
+                                                            ActiveMode.RIDER to "Rider Mode"
+                                                        ).forEach { (modeItem, title) ->
+                                                            val active = profile.activeMode == modeItem
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .weight(1f)
+                                                                    .height(40.dp)
+                                                                    .clip(RoundedCornerShape(10.dp))
+                                                                    .background(if (active) ByaheroDarkGreen else ByaheroSubtleGlass)
+                                                                    .clickable {
+                                                                        onUpdateProfile(profile.copy(activeMode = modeItem))
+                                                                        selectedTab = if (modeItem == ActiveMode.RIDER) 3 else 0
+                                                                    },
+                                                                contentAlignment = Alignment.Center
+                                                            ) {
+                                                                Text(
+                                                                    text = title,
+                                                                    fontFamily = PoppinsFontFamily,
+                                                                    fontSize = 11.sp,
+                                                                    fontWeight = FontWeight.SemiBold,
+                                                                    color = if (active) ByaheroWhite else ByaheroBlack
+                                                                )
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        Surface(
+                                            shape = RoundedCornerShape(16.dp),
+                                            color = ByaheroWhite,
+                                            border = BorderStroke(1.dp, ByaheroBorder)
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(14.dp),
+                                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                AccountInfoRow("Registered Vehicle", "${profile.vehicleType.name.lowercase().replaceFirstChar { it.uppercase() }} · ${profile.plateNumber}")
+                                                AccountInfoRow("Completed Trips", "${profile.totalRides} rides")
+                                                AccountInfoRow("Default Payment", selectedPaymentMethod.label)
+                                            }
+                                        }
+
+                                        OutlinedButton(
+                                            onClick = onLogout,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(48.dp),
+                                            shape = RoundedCornerShape(14.dp),
+                                            border = BorderStroke(1.dp, Color(0xFFFECACA)),
+                                            colors = ButtonDefaults.outlinedButtonColors(
+                                                containerColor = Color(0xFFFEF2F2),
+                                                contentColor = Color(0xFFB91C1C)
+                                            )
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.AutoMirrored.Filled.Logout,
+                                                contentDescription = "Log Out",
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = "Log Out of BYAHERO",
+                                                fontFamily = PoppinsFontFamily,
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+
+                                    SettingsSubTab.FAVORITES -> {
+                                        Surface(
+                                            shape = RoundedCornerShape(16.dp),
+                                            color = ByaheroDarkGreen
+                                        ) {
+                                            Column(modifier = Modifier.padding(14.dp)) {
+                                                Text(
+                                                    text = "Favorites · Always Ordered Destinations",
+                                                    fontFamily = PoppinsFontFamily,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = ByaheroWhite
+                                                )
+                                                Text(
+                                                    text = "Tap Ride Here on any saved destination to set it on your booking panel immediately.",
+                                                    fontFamily = PoppinsFontFamily,
+                                                    fontSize = 11.sp,
+                                                    color = Color(0xFFD1FAE5)
+                                                )
+                                            }
+                                        }
+
+                                        Surface(
+                                            shape = RoundedCornerShape(16.dp),
+                                            color = ByaheroWhite,
+                                            border = BorderStroke(1.dp, ByaheroBorder)
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(12.dp),
+                                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Text(
+                                                    text = "Add Favorite Destination",
+                                                    fontFamily = PoppinsFontFamily,
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = ByaheroBlack
+                                                )
+                                                InlineTextField(
+                                                    value = newFavNameInput,
+                                                    onValueChange = { newFavNameInput = it },
+                                                    placeholder = "Place Name (e.g. SM Seaside City Cebu)"
+                                                )
+                                                InlineTextField(
+                                                    value = newFavAddressInput,
+                                                    onValueChange = { newFavAddressInput = it },
+                                                    placeholder = "Street or City Address"
+                                                )
+                                                Button(
+                                                    onClick = {
+                                                        val cleanName = newFavNameInput.trim()
+                                                        if (cleanName.isEmpty()) return@Button
+                                                        val cleanAddr = newFavAddressInput.trim().ifBlank { "$cleanName, Metro Area" }
+                                                        val newFav = FavoriteDestination(
+                                                            id = "fav_${System.currentTimeMillis()}",
+                                                            label = cleanName,
+                                                            address = cleanAddr,
+                                                            lat = userLocation.latitude + 0.012,
+                                                            lng = userLocation.longitude + 0.012,
+                                                            ordersCount = 1
+                                                        )
+                                                        updateFavoritesList(listOf(newFav) + favorites)
+                                                        newFavNameInput = ""
+                                                        newFavAddressInput = ""
+                                                    },
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .height(38.dp),
+                                                    shape = RoundedCornerShape(10.dp),
+                                                    colors = ButtonDefaults.buttonColors(
+                                                        containerColor = ByaheroDarkGreen,
+                                                        contentColor = ByaheroWhite
+                                                    )
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Add,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Text(
+                                                        text = "Save to Favorites",
+                                                        fontFamily = PoppinsFontFamily,
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold
                                                     )
                                                 }
                                             }
                                         }
 
-                                        if (profile.role == UserRole.BOTH) {
-                                            Text(
-                                                text = "Active Mode",
-                                                fontFamily = PoppinsFontFamily,
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = ByaheroMuted
-                                            )
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        favorites.forEach { fav ->
+                                            Surface(
+                                                shape = RoundedCornerShape(14.dp),
+                                                color = ByaheroWhite,
+                                                border = BorderStroke(1.dp, ByaheroBorder)
                                             ) {
-                                                listOf(
-                                                    ActiveMode.PASSENGER to "Passenger Mode",
-                                                    ActiveMode.RIDER to "Rider Mode"
-                                                ).forEach { (modeItem, title) ->
-                                                    val active = profile.activeMode == modeItem
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .weight(1f)
-                                                            .height(40.dp)
-                                                            .clip(RoundedCornerShape(10.dp))
-                                                            .background(if (active) ByaheroDarkGreen else ByaheroSubtleGlass)
-                                                            .clickable {
-                                                                onUpdateProfile(profile.copy(activeMode = modeItem))
-                                                                selectedTab = if (modeItem == ActiveMode.RIDER) 3 else 0
-                                                            },
-                                                        contentAlignment = Alignment.Center
-                                                    ) {
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(12.dp),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Column(modifier = Modifier.weight(1f)) {
                                                         Text(
-                                                            text = title,
+                                                            text = fav.label,
+                                                            fontFamily = PoppinsFontFamily,
+                                                            fontSize = 13.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = ByaheroBlack,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis
+                                                        )
+                                                        Text(
+                                                            text = fav.address,
                                                             fontFamily = PoppinsFontFamily,
                                                             fontSize = 11.sp,
+                                                            color = ByaheroMuted,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis
+                                                        )
+                                                        Text(
+                                                            text = "Ordered ${fav.ordersCount} times",
+                                                            fontFamily = PoppinsFontFamily,
+                                                            fontSize = 10.sp,
                                                             fontWeight = FontWeight.SemiBold,
-                                                            color = if (active) ByaheroWhite else ByaheroBlack
+                                                            color = ByaheroDarkGreen
+                                                        )
+                                                    }
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                    ) {
+                                                        SmallChipButton("Ride Here") {
+                                                            if (trySetDestination(LatLng(fav.lat, fav.lng), fav.label)) {
+                                                                selectedTab = 0
+                                                            }
+                                                        }
+                                                        IconButton(
+                                                            onClick = {
+                                                                updateFavoritesList(favorites.filter { it.id != fav.id })
+                                                            },
+                                                            modifier = Modifier.size(28.dp)
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.Delete,
+                                                                contentDescription = "Remove favorite",
+                                                                tint = Color(0xFFB91C1C),
+                                                                modifier = Modifier.size(16.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    SettingsSubTab.PAYMENTS -> {
+                                        Surface(
+                                            shape = RoundedCornerShape(16.dp),
+                                            color = ByaheroDarkGreen
+                                        ) {
+                                            Column(modifier = Modifier.padding(14.dp)) {
+                                                Text(
+                                                    text = "Saved Payment Methods",
+                                                    fontFamily = PoppinsFontFamily,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = ByaheroWhite
+                                                )
+                                                Text(
+                                                    text = "Choose Cash, connect your GCash account, or register a Credit/Debit Card.",
+                                                    fontFamily = PoppinsFontFamily,
+                                                    fontSize = 11.sp,
+                                                    color = Color(0xFFD1FAE5)
+                                                )
+                                            }
+                                        }
+
+                                        paymentMethods.forEach { method ->
+                                            val isSelected = method.id == selectedPaymentId
+                                            Surface(
+                                                shape = RoundedCornerShape(14.dp),
+                                                color = ByaheroWhite,
+                                                border = BorderStroke(
+                                                    if (isSelected) 1.5.dp else 1.dp,
+                                                    if (isSelected) ByaheroDarkGreen else ByaheroBorder
+                                                )
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .clickable { selectPaymentMethod(method.id) }
+                                                        .padding(12.dp),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Row(
+                                                        modifier = Modifier.weight(1f),
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                                    ) {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .size(34.dp)
+                                                                .clip(RoundedCornerShape(10.dp))
+                                                                .background(ByaheroDarkGreen),
+                                                            contentAlignment = Alignment.Center
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = when (method.type) {
+                                                                    PaymentMethodType.CASH -> Icons.Default.Payments
+                                                                    PaymentMethodType.GCASH -> Icons.Default.PhoneAndroid
+                                                                    PaymentMethodType.CARD -> Icons.Default.CreditCard
+                                                                },
+                                                                contentDescription = null,
+                                                                tint = ByaheroWhite,
+                                                                modifier = Modifier.size(17.dp)
+                                                            )
+                                                        }
+                                                        Column {
+                                                            Text(
+                                                                text = method.label,
+                                                                fontFamily = PoppinsFontFamily,
+                                                                fontSize = 12.sp,
+                                                                fontWeight = FontWeight.Bold,
+                                                                color = ByaheroBlack
+                                                            )
+                                                            Text(
+                                                                text = method.subtitle,
+                                                                fontFamily = PoppinsFontFamily,
+                                                                fontSize = 10.sp,
+                                                                color = ByaheroMuted
+                                                            )
+                                                        }
+                                                    }
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                    ) {
+                                                        SmallChipButton(if (isSelected) "Default" else "Select") {
+                                                            selectPaymentMethod(method.id)
+                                                        }
+                                                        if (method.type != PaymentMethodType.CASH) {
+                                                            IconButton(
+                                                                onClick = { removePaymentMethod(method.id) },
+                                                                modifier = Modifier.size(28.dp)
+                                                            ) {
+                                                                Icon(
+                                                                    imageVector = Icons.Default.Delete,
+                                                                    contentDescription = "Delete payment method",
+                                                                    tint = Color(0xFFB91C1C),
+                                                                    modifier = Modifier.size(16.dp)
+                                                                )
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Button(
+                                                onClick = {
+                                                    paymentStatusMessage = null
+                                                    addingPaymentForm = if (addingPaymentForm == PaymentMethodType.GCASH) null else PaymentMethodType.GCASH
+                                                },
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .height(40.dp),
+                                                shape = RoundedCornerShape(10.dp),
+                                                colors = ButtonDefaults.buttonColors(
+                                                    containerColor = ByaheroDarkGreen,
+                                                    contentColor = ByaheroWhite
+                                                )
+                                            ) {
+                                                Text(
+                                                    text = "Connect GCash",
+                                                    fontFamily = PoppinsFontFamily,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                            OutlinedButton(
+                                                onClick = {
+                                                    paymentStatusMessage = null
+                                                    addingPaymentForm = if (addingPaymentForm == PaymentMethodType.CARD) null else PaymentMethodType.CARD
+                                                },
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .height(40.dp),
+                                                shape = RoundedCornerShape(10.dp),
+                                                border = BorderStroke(1.dp, ByaheroDarkGreen)
+                                            ) {
+                                                Text(
+                                                    text = "Register Card",
+                                                    fontFamily = PoppinsFontFamily,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = ByaheroDarkGreen
+                                                )
+                                            }
+                                        }
+
+                                        if (addingPaymentForm == PaymentMethodType.GCASH) {
+                                            Surface(
+                                                shape = RoundedCornerShape(14.dp),
+                                                color = ByaheroWhite,
+                                                border = BorderStroke(1.dp, ByaheroBorder)
+                                            ) {
+                                                Column(
+                                                    modifier = Modifier.padding(12.dp),
+                                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "Connect GCash Account",
+                                                        fontFamily = PoppinsFontFamily,
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = ByaheroDarkGreen
+                                                    )
+                                                    InlineTextField(
+                                                        value = gcashNumberInput,
+                                                        onValueChange = { gcashNumberInput = it },
+                                                        placeholder = "GCash Mobile Number (09XX XXX XXXX)"
+                                                    )
+                                                    InlineTextField(
+                                                        value = gcashNameInput,
+                                                        onValueChange = { gcashNameInput = it },
+                                                        placeholder = "Account Full Name"
+                                                    )
+                                                    paymentStatusMessage?.let { msg ->
+                                                        Text(
+                                                            text = msg,
+                                                            fontFamily = PoppinsFontFamily,
+                                                            fontSize = 10.sp,
+                                                            color = Color(0xFFB91C1C)
+                                                        )
+                                                    }
+                                                    Button(
+                                                        onClick = {
+                                                            val digits = gcashNumberInput.filter { it.isDigit() }
+                                                            if (digits.length < 10) {
+                                                                paymentStatusMessage = "Enter a valid 11-digit GCash mobile number."
+                                                                return@Button
+                                                            }
+                                                            val last4 = digits.takeLast(4)
+                                                            val holder = gcashNameInput.trim().ifBlank { profile.fullName }
+                                                            addAndSelectPaymentMethod(
+                                                                SavedPaymentMethod(
+                                                                    id = "pm_gcash_${System.currentTimeMillis()}",
+                                                                    type = PaymentMethodType.GCASH,
+                                                                    label = "GCash (•••• $last4)",
+                                                                    subtitle = "$holder · Connected GCash",
+                                                                    accountNumberOrLast4 = last4,
+                                                                    holderName = holder,
+                                                                    isDefault = true
+                                                                )
+                                                            )
+                                                            gcashNumberInput = ""
+                                                            gcashNameInput = ""
+                                                            paymentStatusMessage = null
+                                                            addingPaymentForm = null
+                                                        },
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .height(38.dp),
+                                                        shape = RoundedCornerShape(10.dp),
+                                                        colors = ButtonDefaults.buttonColors(
+                                                            containerColor = ByaheroDarkGreen,
+                                                            contentColor = ByaheroWhite
+                                                        )
+                                                    ) {
+                                                        Text(
+                                                            text = "Save Connected GCash",
+                                                            fontFamily = PoppinsFontFamily,
+                                                            fontSize = 11.sp,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        if (addingPaymentForm == PaymentMethodType.CARD) {
+                                            Surface(
+                                                shape = RoundedCornerShape(14.dp),
+                                                color = ByaheroWhite,
+                                                border = BorderStroke(1.dp, ByaheroBorder)
+                                            ) {
+                                                Column(
+                                                    modifier = Modifier.padding(12.dp),
+                                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "Register Credit or Debit Card",
+                                                        fontFamily = PoppinsFontFamily,
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = ByaheroDarkGreen
+                                                    )
+                                                    InlineTextField(
+                                                        value = cardHolderInput,
+                                                        onValueChange = { cardHolderInput = it },
+                                                        placeholder = "Cardholder Full Name"
+                                                    )
+                                                    InlineTextField(
+                                                        value = cardNumberInput,
+                                                        onValueChange = { cardNumberInput = it },
+                                                        placeholder = "16-Digit Card Number"
+                                                    )
+                                                    Row(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                    ) {
+                                                        Box(modifier = Modifier.weight(1f)) {
+                                                            InlineTextField(
+                                                                value = cardExpiryInput,
+                                                                onValueChange = { cardExpiryInput = it },
+                                                                placeholder = "Expiry MM/YY"
+                                                            )
+                                                        }
+                                                        Box(modifier = Modifier.weight(1f)) {
+                                                            InlineTextField(
+                                                                value = cardCvvInput,
+                                                                onValueChange = { cardCvvInput = it },
+                                                                placeholder = "CVV"
+                                                            )
+                                                        }
+                                                    }
+                                                    paymentStatusMessage?.let { msg ->
+                                                        Text(
+                                                            text = msg,
+                                                            fontFamily = PoppinsFontFamily,
+                                                            fontSize = 10.sp,
+                                                            color = Color(0xFFB91C1C)
+                                                        )
+                                                    }
+                                                    Button(
+                                                        onClick = {
+                                                            val digits = cardNumberInput.filter { it.isDigit() }
+                                                            if (digits.length < 12) {
+                                                                paymentStatusMessage = "Enter a valid 16-digit card number."
+                                                                return@Button
+                                                            }
+                                                            if (cardExpiryInput.isBlank() || cardCvvInput.filter { it.isDigit() }.length < 3) {
+                                                                paymentStatusMessage = "Enter expiry (MM/YY) and 3-digit CVV."
+                                                                return@Button
+                                                            }
+                                                            val last4 = digits.takeLast(4)
+                                                            val brand = when {
+                                                                digits.startsWith("4") -> "Visa"
+                                                                digits.startsWith("5") -> "Mastercard"
+                                                                else -> "Card"
+                                                            }
+                                                            val holder = cardHolderInput.trim().ifBlank { profile.fullName }
+                                                            addAndSelectPaymentMethod(
+                                                                SavedPaymentMethod(
+                                                                    id = "pm_card_${System.currentTimeMillis()}",
+                                                                    type = PaymentMethodType.CARD,
+                                                                    label = "$brand •••• $last4",
+                                                                    subtitle = "$holder · Exp ${cardExpiryInput.trim()}",
+                                                                    accountNumberOrLast4 = last4,
+                                                                    holderName = holder,
+                                                                    expiry = cardExpiryInput.trim(),
+                                                                    isDefault = true
+                                                                )
+                                                            )
+                                                            cardHolderInput = ""
+                                                            cardNumberInput = ""
+                                                            cardExpiryInput = ""
+                                                            cardCvvInput = ""
+                                                            paymentStatusMessage = null
+                                                            addingPaymentForm = null
+                                                        },
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .height(38.dp),
+                                                        shape = RoundedCornerShape(10.dp),
+                                                        colors = ButtonDefaults.buttonColors(
+                                                            containerColor = ByaheroDarkGreen,
+                                                            contentColor = ByaheroWhite
+                                                        )
+                                                    ) {
+                                                        Text(
+                                                            text = "Save Registered Card",
+                                                            fontFamily = PoppinsFontFamily,
+                                                            fontSize = 11.sp,
+                                                            fontWeight = FontWeight.Bold
                                                         )
                                                     }
                                                 }
                                             }
                                         }
                                     }
-                                }
 
-                                Surface(
-                                    shape = RoundedCornerShape(16.dp),
-                                    color = ByaheroWhite,
-                                    border = BorderStroke(1.dp, ByaheroBorder)
-                                ) {
-                                    Column(
-                                        modifier = Modifier.padding(14.dp),
-                                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        AccountInfoRow("Saturday Discount", "10% Off All Rides")
-                                        AccountInfoRow("Rider Bonus", "+5% Extra Incentive")
-                                        AccountInfoRow(
-                                            "Registered Vehicle",
-                                            "${profile.vehicleType.name.lowercase().replaceFirstChar { it.uppercase() }} · ${profile.plateNumber}"
-                                        )
+                                    SettingsSubTab.PROMOS -> {
+                                        Surface(
+                                            shape = RoundedCornerShape(16.dp),
+                                            color = ByaheroWhite,
+                                            border = BorderStroke(1.dp, ByaheroBorder)
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(12.dp),
+                                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Text(
+                                                    text = "Redeem Promo Code",
+                                                    fontFamily = PoppinsFontFamily,
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = ByaheroBlack
+                                                )
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Box(modifier = Modifier.weight(1f)) {
+                                                        InlineTextField(
+                                                            value = promoCodeInput,
+                                                            onValueChange = { promoCodeInput = it.uppercase() },
+                                                            placeholder = "Enter code (e.g. BYAHERO10)"
+                                                        )
+                                                    }
+                                                    SmallChipButton("Apply") {
+                                                        val clean = promoCodeInput.trim().uppercase()
+                                                        val match = availablePromos.firstOrNull { it.code == clean }
+                                                        if (match != null) {
+                                                            updateAppliedPromo(match.code)
+                                                            promoFeedbackMessage = "Promo code ${match.code} applied!"
+                                                            promoCodeInput = ""
+                                                        } else {
+                                                            promoFeedbackMessage = "Invalid code. Try BYAHERO10 or SATPROMO."
+                                                        }
+                                                    }
+                                                }
+                                                promoFeedbackMessage?.let { msg ->
+                                                    Text(
+                                                        text = msg,
+                                                        fontFamily = PoppinsFontFamily,
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        color = ByaheroDarkGreen
+                                                    )
+                                                }
+                                            }
+                                        }
+
+                                        availablePromos.forEach { promo ->
+                                            val isApplied = appliedPromoCode == promo.code
+                                            Surface(
+                                                shape = RoundedCornerShape(14.dp),
+                                                color = ByaheroWhite,
+                                                border = BorderStroke(
+                                                    if (isApplied) 1.5.dp else 1.dp,
+                                                    if (isApplied) ByaheroDarkGreen else ByaheroBorder
+                                                )
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(12.dp),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Column(modifier = Modifier.weight(1f)) {
+                                                        Text(
+                                                            text = "${promo.code} · ${promo.title}",
+                                                            fontFamily = PoppinsFontFamily,
+                                                            fontSize = 12.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = ByaheroDarkGreen
+                                                        )
+                                                        Text(
+                                                            text = promo.description,
+                                                            fontFamily = PoppinsFontFamily,
+                                                            fontSize = 11.sp,
+                                                            color = ByaheroMuted
+                                                        )
+                                                    }
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                    SmallChipButton(if (isApplied) "Applied" else "Use Code") {
+                                                        updateAppliedPromo(if (isApplied) null else promo.code)
+                                                        promoFeedbackMessage = if (isApplied) {
+                                                            "Removed promo code ${promo.code}."
+                                                        } else {
+                                                            "Promo code ${promo.code} applied!"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
-                                }
 
-                                OutlinedButton(
-                                    onClick = onLogout,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(48.dp),
-                                    shape = RoundedCornerShape(14.dp),
-                                    border = BorderStroke(1.dp, Color(0xFFFECACA)),
-                                    colors = ButtonDefaults.outlinedButtonColors(
-                                        containerColor = Color(0xFFFEF2F2),
-                                        contentColor = Color(0xFFB91C1C)
-                                    )
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.Logout,
-                                        contentDescription = "Log Out",
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = "Log Out",
-                                        fontFamily = PoppinsFontFamily,
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
+                                    SettingsSubTab.SUPPORT -> {
+                                        Surface(
+                                            shape = RoundedCornerShape(16.dp),
+                                            color = ByaheroDarkGreen
+                                        ) {
+                                            Column(modifier = Modifier.padding(14.dp)) {
+                                                Text(
+                                                    text = "BYAHERO 24/7 Support Service",
+                                                    fontFamily = PoppinsFontFamily,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = ByaheroWhite
+                                                )
+                                                Text(
+                                                    text = "Live dispatch assistance for passengers and partner riders. Hotline: +63 (032) 888-BYAH",
+                                                    fontFamily = PoppinsFontFamily,
+                                                    fontSize = 11.sp,
+                                                    color = Color(0xFFD1FAE5)
+                                                )
+                                            }
+                                        }
+
+                                        Surface(
+                                            shape = RoundedCornerShape(16.dp),
+                                            color = ByaheroWhite,
+                                            border = BorderStroke(1.dp, ByaheroBorder)
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(12.dp),
+                                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Text(
+                                                    text = "Submit Support Request",
+                                                    fontFamily = PoppinsFontFamily,
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = ByaheroBlack
+                                                )
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .horizontalScroll(rememberScrollState()),
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                ) {
+                                                    listOf(
+                                                        "Trip & Fare Assistance",
+                                                        "Payment & GCash Inquiry",
+                                                        "Lost Item on Ride",
+                                                        "Rider & Safety Report"
+                                                    ).forEach { cat ->
+                                                        val selected = supportCategory == cat
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .clip(RoundedCornerShape(8.dp))
+                                                                .background(if (selected) ByaheroDarkGreen else ByaheroSubtleGlass)
+                                                                .clickable { supportCategory = cat }
+                                                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                                                        ) {
+                                                            Text(
+                                                                text = cat,
+                                                                fontFamily = PoppinsFontFamily,
+                                                                fontSize = 10.sp,
+                                                                fontWeight = FontWeight.Bold,
+                                                                color = if (selected) ByaheroWhite else ByaheroBlack
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                                InlineTextField(
+                                                    value = supportMessageInput,
+                                                    onValueChange = { supportMessageInput = it },
+                                                    placeholder = "Describe how our support team can help..."
+                                                )
+                                                supportFeedback?.let { msg ->
+                                                    Text(
+                                                        text = msg,
+                                                        fontFamily = PoppinsFontFamily,
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        color = ByaheroDarkGreen
+                                                    )
+                                                }
+                                                Button(
+                                                    onClick = {
+                                                        val clean = supportMessageInput.trim()
+                                                        if (clean.isEmpty()) return@Button
+                                                        val ticket = SupportTicketItem(
+                                                            id = "TKT-${(3000..8999).random()}",
+                                                            category = supportCategory,
+                                                            message = clean,
+                                                            status = "Open",
+                                                            createdAt = "Just now"
+                                                        )
+                                                        supportTickets = listOf(ticket) + supportTickets
+                                                        supportMessageInput = ""
+                                                        supportFeedback = "Ticket ${ticket.id} submitted to 24/7 dispatch support."
+                                                    },
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .height(38.dp),
+                                                    shape = RoundedCornerShape(10.dp),
+                                                    colors = ButtonDefaults.buttonColors(
+                                                        containerColor = ByaheroDarkGreen,
+                                                        contentColor = ByaheroWhite
+                                                    )
+                                                ) {
+                                                    Text(
+                                                        text = "Send to Support Team",
+                                                        fontFamily = PoppinsFontFamily,
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+                                            }
+                                        }
+
+                                        supportTickets.forEach { t ->
+                                            Surface(
+                                                shape = RoundedCornerShape(14.dp),
+                                                color = ByaheroWhite,
+                                                border = BorderStroke(1.dp, ByaheroBorder)
+                                            ) {
+                                                Column(
+                                                    modifier = Modifier.padding(12.dp),
+                                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                                ) {
+                                                    Row(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        horizontalArrangement = Arrangement.SpaceBetween
+                                                    ) {
+                                                        Text(
+                                                            text = "${t.id} · ${t.category}",
+                                                            fontFamily = PoppinsFontFamily,
+                                                            fontSize = 11.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = ByaheroDarkGreen
+                                                        )
+                                                        Text(
+                                                            text = "${t.status} · ${t.createdAt}",
+                                                            fontFamily = PoppinsFontFamily,
+                                                            fontSize = 10.sp,
+                                                            color = ByaheroMuted
+                                                        )
+                                                    }
+                                                    Text(
+                                                        text = t.message,
+                                                        fontFamily = PoppinsFontFamily,
+                                                        fontSize = 11.sp,
+                                                        color = ByaheroBlack
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    SettingsSubTab.ABOUT -> {
+                                        Surface(
+                                            shape = RoundedCornerShape(16.dp),
+                                            color = ByaheroDarkGreen
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(14.dp),
+                                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                Text(
+                                                    text = "BYAHERO by HDDEV · Version 2.4.0",
+                                                    fontFamily = PoppinsFontFamily,
+                                                    fontSize = 14.sp,
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    color = ByaheroWhite
+                                                )
+                                                Text(
+                                                    text = "Dual-role motorcycle and taxi ride-hailing & nearby discovery platform engineered for commuters and partner riders.",
+                                                    fontFamily = PoppinsFontFamily,
+                                                    fontSize = 11.sp,
+                                                    color = Color(0xFFD1FAE5)
+                                                )
+                                            }
+                                        }
+
+                                        Surface(
+                                            shape = RoundedCornerShape(16.dp),
+                                            color = ByaheroWhite,
+                                            border = BorderStroke(1.dp, ByaheroBorder)
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(14.dp),
+                                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                AccountInfoRow("BYAHERO Moto Base Fare", "P40.00 + P12/km")
+                                                AccountInfoRow("BYAHERO Cab Base Fare", "P60.00 + P18/km")
+                                                AccountInfoRow("Saturday Discount", "10% Off All Rides")
+                                                AccountInfoRow("Rider Bonus", "+5% Extra Incentive")
+                                                AccountInfoRow("Supported Payments", "Cash, GCash, Credit/Debit")
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun SettingsSubTabButton(
+    modifier: Modifier,
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = modifier.height(36.dp),
+        onClick = onClick,
+        shape = RoundedCornerShape(10.dp),
+        color = if (selected) ByaheroDarkGreen else Color.Transparent
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (selected) ByaheroWhite else ByaheroMuted,
+                modifier = Modifier.size(13.dp)
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = label,
+                fontFamily = PoppinsFontFamily,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (selected) ByaheroWhite else ByaheroMuted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun PaymentTypeOptionCard(
+    modifier: Modifier,
+    title: String,
+    subtitle: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = modifier,
+        onClick = onClick,
+        shape = RoundedCornerShape(12.dp),
+        color = if (selected) ByaheroDarkGreen else ByaheroSubtleGlass,
+        border = BorderStroke(1.dp, if (selected) ByaheroDarkGreen else ByaheroBorder)
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                text = title,
+                fontFamily = PoppinsFontFamily,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (selected) ByaheroWhite else ByaheroBlack,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = subtitle,
+                fontFamily = PoppinsFontFamily,
+                fontSize = 9.sp,
+                color = if (selected) Color(0xFFD1FAE5) else ByaheroMuted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun InlineTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String
+) {
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = ByaheroSubtleGlass,
+        border = BorderStroke(1.dp, ByaheroBorder)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(38.dp)
+                .padding(horizontal = 10.dp),
+            contentAlignment = Alignment.CenterStart
+        ) {
+            if (value.isEmpty()) {
+                Text(
+                    text = placeholder,
+                    fontFamily = PoppinsFontFamily,
+                    fontSize = 11.sp,
+                    color = ByaheroMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                singleLine = true,
+                textStyle = TextStyle(
+                    fontFamily = PoppinsFontFamily,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = ByaheroBlack
+                ),
+                cursorBrush = SolidColor(ByaheroDarkGreen),
+                modifier = Modifier.fillMaxWidth()
+            )
         }
     }
 }
@@ -3083,6 +4512,13 @@ private fun ActiveRideTrackerCard(
                 fontFamily = PoppinsFontFamily,
                 fontSize = 12.sp,
                 color = ByaheroBlack
+            )
+            Text(
+                text = "Payment: ${ride.paymentMethodLabel} · Fare P${String.format("%.2f", ride.fare.finalFare)}",
+                fontFamily = PoppinsFontFamily,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = ByaheroDarkGreen
             )
             if (ride.riderPlate != null) {
                 Text(
