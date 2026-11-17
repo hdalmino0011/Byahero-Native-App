@@ -1,0 +1,6 @@
+{
+  "name": "BYAHERO",
+  "description": "BYAHERO by HDDEV — Generous ride-hailing for motorcycle and taxi bookings, live Google Maps discovery for fast food and resorts, Saturday 10% passenger discounts, and 5% rider incentives.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,2 @@
+-keep class com.hddev.byahero.nativeengine.** { *; }
+-keep class com.hddev.byahero.data.** { *; }
