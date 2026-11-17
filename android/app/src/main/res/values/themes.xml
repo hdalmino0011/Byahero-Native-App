@@ -1,5 +1,5 @@
 <resources>
-    <style name="Theme.Byahero" parent="android:Theme.Material.NoActionBar">
+    <style name="Theme.Byahero" parent="Theme.Material3.DayNight.NoActionBar">
         <item name="android:statusBarColor">#090B0A</item>
         <item name="android:navigationBarColor">#090B0A</item>
         <item name="android:windowBackground">#090B0A</item>
