@@ -88,13 +88,77 @@ object PlaceSearchHelper {
         category: String,
         center: LatLng
     ): List<NearbySpot> = withContext(Dispatchers.IO) {
+        val aggregated = mutableListOf<NearbySpot>()
+
+        // 1. Try Overpass API first for accurate nearby POIs around real phone GPS
+        try {
+            val radiusMeters = if (category == "resort_beach") 35000 else 8000
+            val overpassFilter = when (category) {
+                "fast_food" ->
+                    """[out:json][timeout:10];(node["amenity"="fast_food"](around:$radiusMeters,${center.latitude},${center.longitude});way["amenity"="fast_food"](around:$radiusMeters,${center.latitude},${center.longitude});node["name"~"Jollibee|McDonald|KFC|Chowking|Burger King",i](around:$radiusMeters,${center.latitude},${center.longitude}););out center 15;"""
+                "resort_beach" ->
+                    """[out:json][timeout:10];(node["tourism"~"resort|hotel"](around:$radiusMeters,${center.latitude},${center.longitude});way["tourism"="resort"](around:$radiusMeters,${center.latitude},${center.longitude});node["natural"="beach"](around:$radiusMeters,${center.latitude},${center.longitude});way["natural"="beach"](around:$radiusMeters,${center.latitude},${center.longitude}););out center 15;"""
+                else -> ""
+            }
+            if (overpassFilter.isNotEmpty()) {
+                val conn = (URL("https://overpass-api.de/api/interpreter").openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    doOutput = true
+                    connectTimeout = 5000
+                    readTimeout = 6000
+                    setRequestProperty("User-Agent", "BYAHERO-Android/1.0")
+                    setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+                }
+                conn.outputStream.use {
+                    it.write(("data=" + URLEncoder.encode(overpassFilter, "UTF-8")).toByteArray())
+                }
+                if (conn.responseCode == 200) {
+                    val body = conn.inputStream.bufferedReader().readText()
+                    val elements = org.json.JSONObject(body).optJSONArray("elements") ?: JSONArray()
+                    for (i in 0 until elements.length()) {
+                        val el = elements.getJSONObject(i)
+                        val tags = el.optJSONObject("tags") ?: continue
+                        val name = tags.optString("name").ifBlank { continue }
+                        val cObj = el.optJSONObject("center")
+                        val lat = el.optDouble("lat", Double.NaN).let { if (it.isNaN()) cObj?.optDouble("lat", Double.NaN) ?: Double.NaN else it }
+                        val lng = el.optDouble("lon", Double.NaN).let { if (it.isNaN()) cObj?.optDouble("lon", Double.NaN) ?: Double.NaN else it }
+                        if (lat.isNaN() || lng.isNaN()) continue
+                        val street = tags.optString("addr:street").ifBlank { tags.optString("addr:city", "") }
+                        val dist = ByaheroNativeEngine.calculateHaversineKm(center.latitude, center.longitude, lat, lng)
+                        aggregated.add(
+                            NearbySpot(
+                                id = "ov_${el.optLong("id", i.toLong())}",
+                                name = name,
+                                address = street.ifBlank { "Nearby ${category.replace('_', ' ')}" },
+                                lat = lat,
+                                lng = lng,
+                                rating = null,
+                                category = category,
+                                distanceKm = dist
+                            )
+                        )
+                    }
+                }
+                conn.disconnect()
+            }
+        } catch (_: Exception) {
+            // Fall through to Nominatim
+        }
+
+        if (aggregated.isNotEmpty()) {
+            return@withContext aggregated
+                .distinctBy { it.name + "_" + String.format("%.3f", it.lat) }
+                .sortedBy { it.distanceKm }
+                .take(12)
+        }
+
+        // 2. Fallback to Nominatim bounded search
         val searchQueries = when (category) {
             "fast_food" -> listOf("Jollibee", "McDonald's", "KFC")
             "resort_beach" -> listOf("resort", "beach")
             else -> listOf(query)
         }
 
-        val aggregated = mutableListOf<NearbySpot>()
         val delta = if (category == "resort_beach") 0.45 else 0.15
         val viewbox = "${center.longitude - delta},${center.latitude + delta},${center.longitude + delta},${center.latitude - delta}"
 

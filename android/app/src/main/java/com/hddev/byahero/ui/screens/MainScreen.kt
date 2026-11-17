@@ -75,6 +75,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
 import com.google.maps.android.compose.GoogleMap
@@ -93,7 +94,7 @@ import com.hddev.byahero.data.UserProfile
 import com.hddev.byahero.data.UserRole
 import com.hddev.byahero.data.VehicleType
 import com.hddev.byahero.nativeengine.ByaheroNativeEngine
-import com.hddev.byahero.ui.components.InteractiveOsmMap
+import com.hddev.byahero.ui.components.NativeInteractiveMap
 import com.hddev.byahero.ui.theme.ByaheroBlack
 import com.hddev.byahero.ui.theme.ByaheroBorder
 import com.hddev.byahero.ui.theme.ByaheroCanvas
@@ -164,6 +165,7 @@ fun MainScreen(
     var destLabel by remember { mutableStateOf("") }
     var destLatLng by remember { mutableStateOf<LatLng?>(null) }
     var mapPickMode by remember { mutableStateOf(MapPickMode.NONE) }
+    var recenterSeq by remember { mutableStateOf(0) }
 
     LaunchedEffect(hasLocationPermission) {
         if (hasLocationPermission) {
@@ -175,6 +177,17 @@ fun MainScreen(
                     if (pickupLabel == "Current GPS Location") {
                         pickupLatLng = live
                     }
+                } else {
+                    fused.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
+                        .addOnSuccessListener { fresh ->
+                            if (fresh != null) {
+                                val live = LatLng(fresh.latitude, fresh.longitude)
+                                userLocation = live
+                                if (pickupLabel == "Current GPS Location") {
+                                    pickupLatLng = live
+                                }
+                            }
+                        }
                 }
             }
         }
@@ -402,12 +415,13 @@ fun MainScreen(
                         }
                     }
                 } else {
-                    InteractiveOsmMap(
+                    NativeInteractiveMap(
                         modifier = Modifier.fillMaxSize(),
                         userLocation = userLocation,
                         pickupLocation = pickupLatLng,
                         destinationLocation = destLatLng,
                         discoveredSpots = discoveredSpots,
+                        recenterSeq = recenterSeq,
                         onMapClick = { handleMapTap(it) }
                     )
                 }
@@ -535,17 +549,26 @@ fun MainScreen(
                         )
                         Surface(
                             onClick = {
-                                if (hasLocationPermission) {
+                                if (!hasLocationPermission) {
+                                    permissionLauncher.launch(
+                                        arrayOf(
+                                            Manifest.permission.ACCESS_FINE_LOCATION,
+                                            Manifest.permission.ACCESS_COARSE_LOCATION
+                                        )
+                                    )
+                                } else {
                                     val fused = LocationServices.getFusedLocationProviderClient(context)
-                                    fused.lastLocation.addOnSuccessListener { loc ->
-                                        if (loc != null) {
-                                            val next = LatLng(loc.latitude, loc.longitude)
-                                            userLocation = next
-                                            pickupLatLng = next
-                                            pickupLabel = "Current GPS Location"
-                                            cameraState.position = CameraPosition.fromLatLngZoom(next, 15f)
+                                    fused.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
+                                        .addOnSuccessListener { loc ->
+                                            if (loc != null) {
+                                                val next = LatLng(loc.latitude, loc.longitude)
+                                                userLocation = next
+                                                pickupLatLng = next
+                                                pickupLabel = "Current GPS Location"
+                                                cameraState.position = CameraPosition.fromLatLngZoom(next, 15f)
+                                                recenterSeq++
+                                            }
                                         }
-                                    }
                                 }
                             },
                             shape = RoundedCornerShape(10.dp),
