@@ -61,7 +61,7 @@ export const ExploreNearbyPanel: React.FC<ExploreNearbyPanelProps> = ({
       <div className="flex items-center justify-between px-4 py-2.5 rounded-2xl glass-green text-white text-xs">
         <span className="font-bold">{categoryLabel}</span>
         <span className="text-white/85 tabular-nums font-medium">
-          {isLoading ? 'Searching...' : `${places.length} locations found`}
+          {isLoading ? 'Searching...' : `${places.length} found`}
         </span>
       </div>
 
@@ -160,7 +160,7 @@ export const ExploreNearbyPanel: React.FC<ExploreNearbyPanelProps> = ({
                   onClick={() => onSelectPlace(place)}
                   className="flex-1 h-10 rounded-xl bg-[#EBF1ED] hover:bg-[#DCE7E0] text-xs font-semibold text-[#101713] transition-colors"
                 >
-                  View Location
+                  Show on Map
                 </button>
                 <button
                   type="button"

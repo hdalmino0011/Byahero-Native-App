@@ -455,7 +455,7 @@ export const GoogleMapsWorkspace: React.FC<GoogleMapsWorkspaceProps> = ({
               setSearchInput(e.target.value);
               setActiveSearchFocus(true);
             }}
-            placeholder="Search your favourite place, McDonald's, resort..."
+            placeholder="Search any location, McDonald's, resort..."
             aria-label="Search any location on Google Maps"
             className="w-full h-11 px-3 bg-transparent text-sm text-[#101713] placeholder:text-[#7B8880] focus:outline-none"
           />

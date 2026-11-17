@@ -1,0 +1,16 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Artwork sized cleanly inside the 66dp adaptive icon safe zone (x/y 24..84) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M29,70.5C35.2,56.5 47.0,42.5 70.5,37.0L60.8,52.2H76.5L43.2,76.0L50.2,59.2H36.2L29,70.5Z" />
+    <path
+        android:fillColor="#34D399"
+        android:pathData="M76.5,33.5m-6.2,0a6.2,6.2 0,1 1,12.4 0a6.2,6.2 0,1 1,-12.4 0" />
+    <path
+        android:fillColor="#08331B"
+        android:pathData="M76.5,33.5m-2.5,0a2.5,2.5 0,1 1,5.0 0a2.5,2.5 0,1 1,-5.0 0" />
+</vector>

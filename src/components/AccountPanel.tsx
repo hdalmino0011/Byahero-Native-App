@@ -2,6 +2,7 @@ import React from 'react';
 import {Bike, Car, LogOut, Percent, TrendingUp, UserCheck} from 'lucide-react';
 import {ActiveMode, UserProfile, UserRole} from '../types/byahero';
 import {GoogleGVectorIcon} from './VectorGraphics';
+import {PWAInstallButton} from './PWAInstallButton';
 
 interface AccountPanelProps {
   profile: UserProfile;
@@ -139,6 +140,9 @@ export const AccountPanel: React.FC<AccountPanelProps> = ({
           <span className="text-[#0F522B] font-bold">+5% Extra</span>
         </div>
       </div>
+
+      {/* Install on Mobile Home Screen */}
+      <PWAInstallButton />
 
       {/* Log Out */}
       <button

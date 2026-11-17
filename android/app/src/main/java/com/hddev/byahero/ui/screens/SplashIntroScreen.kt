@@ -32,6 +32,7 @@ import com.hddev.byahero.ui.theme.ByaheroBlack
 import com.hddev.byahero.ui.theme.ByaheroDarkGreen
 import com.hddev.byahero.ui.theme.ByaheroEmerald
 import com.hddev.byahero.ui.theme.ByaheroWhite
+import com.hddev.byahero.ui.theme.PoppinsFontFamily
 import kotlinx.coroutines.delay
 
 @Composable
@@ -89,6 +90,7 @@ fun SplashIntroScreen(onFinished: () -> Unit) {
             Text(
                 text = "BYAHERO",
                 color = ByaheroWhite,
+                fontFamily = PoppinsFontFamily,
                 fontSize = 36.sp,
                 fontWeight = FontWeight.ExtraBold,
                 letterSpacing = 5.sp,
@@ -100,6 +102,7 @@ fun SplashIntroScreen(onFinished: () -> Unit) {
             Text(
                 text = "by HDDEV",
                 color = ByaheroEmerald,
+                fontFamily = PoppinsFontFamily,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
                 letterSpacing = 3.sp,

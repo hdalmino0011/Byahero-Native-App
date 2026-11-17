@@ -18,6 +18,29 @@ enum class VehicleType {
     TAXI
 }
 
+enum class RideStatus {
+    SEARCHING,
+    ACCEPTED,
+    ARRIVING,
+    IN_PROGRESS,
+    COMPLETED
+}
+
+data class UserProfile(
+    val id: String,
+    val fullName: String,
+    val email: String,
+    val authProvider: String = "member",
+    val role: UserRole = UserRole.BOTH,
+    val activeMode: ActiveMode = ActiveMode.PASSENGER,
+    val vehicleType: VehicleType = VehicleType.MOTORCYCLE,
+    val plateNumber: String = "BYH-2026",
+    val isOnline: Boolean = true,
+    val totalRides: Int = 14,
+    val riderEarningsPhp: Double = 3840.0,
+    val riderIncentivesPhp: Double = 192.0
+)
+
 data class FareQuote(
     val baseFare: Double,
     val distanceFare: Double,
@@ -37,6 +60,24 @@ data class NearbySpot(
     val rating: Double?,
     val category: String,
     val distanceKm: Double
+)
+
+data class ActiveRide(
+    val id: String,
+    val passengerName: String,
+    val vehicleType: VehicleType,
+    val pickupLabel: String,
+    val pickupLat: Double,
+    val pickupLng: Double,
+    val destinationLabel: String,
+    val destLat: Double,
+    val destLng: Double,
+    val distanceKm: Double,
+    val durationMins: Int,
+    val fare: FareQuote,
+    val status: RideStatus,
+    val riderName: String? = null,
+    val riderPlate: String? = null
 )
 
 @Serializable

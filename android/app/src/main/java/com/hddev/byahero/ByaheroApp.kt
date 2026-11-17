@@ -8,16 +8,18 @@ import com.google.android.libraries.places.api.Places
 class ByaheroApp : Application() {
     override fun onCreate() {
         super.onCreate()
-        MapsInitializer.initialize(applicationContext, MapsInitializer.Renderer.LATEST, null)
-        MapsApiSettings.addInternalUsageAttributionId(
-            applicationContext,
-            "gmp_mcp_codeassist_v1_aistudio"
-        )
-        if (!Places.isInitialized() && BuildConfig.MAPS_API_KEY.isNotBlank()) {
-            Places.initializeWithNewPlacesApiEnabled(
+        val apiKey = BuildConfig.MAPS_API_KEY
+        val hasValidKey = apiKey.isNotBlank() && !apiKey.contains("Placeholder", ignoreCase = true)
+
+        if (hasValidKey) {
+            MapsInitializer.initialize(applicationContext, MapsInitializer.Renderer.LATEST, null)
+            MapsApiSettings.addInternalUsageAttributionId(
                 applicationContext,
-                BuildConfig.MAPS_API_KEY
+                "gmp_mcp_codeassist_v1_aistudio"
             )
+            if (!Places.isInitialized()) {
+                Places.initializeWithNewPlacesApiEnabled(applicationContext, apiKey)
+            }
         }
     }
 }
