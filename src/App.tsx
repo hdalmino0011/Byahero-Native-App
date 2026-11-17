@@ -1,10 +1,12 @@
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import {APIProvider} from '@vis.gl/react-google-maps';
 import {
+  AlertCircle,
   Bike,
   ChevronDown,
   ChevronUp,
   Compass,
+  History,
   Navigation,
   Smartphone,
   User,
@@ -26,6 +28,8 @@ import {
   calculateHaversineKm,
   isTodaySaturday,
 } from './utils/pricing';
+import {reverseGeocodePoint} from './utils/reverseGeocode';
+import {areLocationsSame} from './utils/locationMatch';
 import {
   publishRideToSupabase,
   supabase,
@@ -38,6 +42,7 @@ import {AuthModal} from './components/AuthModal';
 import {GoogleMapsWorkspace} from './components/GoogleMapsWorkspace';
 import {BookingPanel} from './components/BookingPanel';
 import {ExploreNearbyPanel} from './components/ExploreNearbyPanel';
+import {OrderHistoryPanel} from './components/OrderHistoryPanel';
 import {RiderDashboardPanel} from './components/RiderDashboardPanel';
 import {AccountPanel} from './components/AccountPanel';
 import {ByaheroLogoMark} from './components/VectorGraphics';
@@ -108,6 +113,63 @@ const SEED_DISPATCH_REQUESTS: RideBooking[] = [
   },
 ];
 
+const ORDER_HISTORY_STORAGE_KEY = 'byahero_order_history_v1';
+
+const SEED_ORDER_HISTORY: RideBooking[] = [
+  {
+    id: 'hist_001',
+    passengerName: 'Alex Rivera',
+    riderName: 'Kuya Carlo D.',
+    riderPlate: 'MTO-8421',
+    riderRating: 4.96,
+    vehicleType: 'motorcycle',
+    pickup: {
+      label: 'IT Park, Lahug',
+      address: 'Cebu IT Park, Cebu City',
+      lat: 10.3304,
+      lng: 123.9056,
+    },
+    destination: {
+      label: 'SM City Cebu',
+      address: 'North Reclamation Area, Cebu City',
+      lat: 10.3119,
+      lng: 123.9182,
+    },
+    distanceKm: 3.8,
+    durationMins: 12,
+    fare: calculateByaheroFare(3.8, 'motorcycle', false),
+    status: 'completed',
+    roleContext: 'passenger',
+    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 26).toISOString(),
+  },
+  {
+    id: 'hist_002',
+    passengerName: 'Alex Rivera',
+    riderName: 'Kuya Ramon V.',
+    riderPlate: 'TXI-3902',
+    riderRating: 4.94,
+    vehicleType: 'taxi',
+    pickup: {
+      label: 'Ayala Center Cebu',
+      address: 'Cebu Business Park, Cebu City',
+      lat: 10.3181,
+      lng: 123.9049,
+    },
+    destination: {
+      label: 'Mactan Shrine Resort Strip',
+      address: 'Lapu-Lapu City, Cebu',
+      lat: 10.3106,
+      lng: 124.0151,
+    },
+    distanceKm: 13.4,
+    durationMins: 32,
+    fare: calculateByaheroFare(13.4, 'taxi', true),
+    status: 'completed',
+    roleContext: 'passenger',
+    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 74).toISOString(),
+  },
+];
+
 export default function App() {
   const [showSplash, setShowSplash] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -150,12 +212,46 @@ export default function App() {
     seq: number;
   } | null>(null);
 
-  // Booking & Rider Dispatch State
+  // Booking, Validation & Rider Dispatch State
+  const [locationError, setLocationError] = useState<string | null>(null);
   const [activeRide, setActiveRide] = useState<RideBooking | null>(null);
+  const [orderHistory, setOrderHistory] = useState<RideBooking[]>(() => {
+    try {
+      const saved = window.localStorage.getItem(ORDER_HISTORY_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved) as RideBooking[];
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {
+      // ignore storage errors
+    }
+    return SEED_ORDER_HISTORY;
+  });
   const [incomingRequests, setIncomingRequests] = useState<RideBooking[]>(
     SEED_DISPATCH_REQUESTS
   );
   const [activeRiderJob, setActiveRiderJob] = useState<RideBooking | null>(null);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(ORDER_HISTORY_STORAGE_KEY, JSON.stringify(orderHistory));
+    } catch {
+      // ignore storage quota errors
+    }
+  }, [orderHistory]);
+
+  useEffect(() => {
+    if (!locationError) return;
+    const timer = window.setTimeout(() => setLocationError(null), 4500);
+    return () => window.clearTimeout(timer);
+  }, [locationError]);
+
+  const recordOrderInHistory = useCallback((entry: RideBooking) => {
+    setOrderHistory((prev) => {
+      const filtered = prev.filter((item) => item.id !== entry.id);
+      return [entry, ...filtered];
+    });
+  }, []);
 
   // Tier 1 & 2 Quota Listener
   useEffect(() => {
@@ -174,16 +270,19 @@ export default function App() {
         lng: pos.coords.longitude,
       };
       setUserLocation(next);
-      setPickup((prev) => {
-        if (!prev || prev.label === 'Current GPS Location') {
-          return {
-            label: 'Current GPS Location',
-            address: `${next.lat.toFixed(4)}, ${next.lng.toFixed(4)}`,
-            lat: next.lat,
-            lng: next.lng,
-          };
-        }
-        return prev;
+      void reverseGeocodePoint(next).then((resolved) => {
+        const candidate: LocationStop = {
+          label: resolved.label,
+          address: resolved.address,
+          lat: next.lat,
+          lng: next.lng,
+        };
+        setPickup((prev) => {
+          if (!prev || prev.label === 'Current GPS Location' || prev.address === 'Live GPS Position') {
+            return candidate;
+          }
+          return prev;
+        });
       });
     };
 
@@ -262,36 +361,114 @@ export default function App() {
     setDurationMins(mins);
   }, []);
 
+  const trySetPickup = useCallback(
+    (stop: LocationStop | null): boolean => {
+      if (stop && destination && areLocationsSame(stop, destination)) {
+        setLocationError('Pickup and destination cannot be the same location.');
+        return false;
+      }
+      setLocationError(null);
+      setPickup(stop);
+      setDistanceKm(0);
+      return true;
+    },
+    [destination]
+  );
+
+  const trySetDestination = useCallback(
+    (stop: LocationStop | null): boolean => {
+      if (stop && pickup && areLocationsSame(stop, pickup)) {
+        setLocationError('Destination cannot be the same as your pickup location.');
+        return false;
+      }
+      setLocationError(null);
+      setDestination(stop);
+      setDistanceKm(0);
+      return true;
+    },
+    [pickup]
+  );
+
   const handleMapTapSelect = useCallback(
     (coords: LatLngPoint) => {
-      const stop: LocationStop = {
-        label: `Pinned (${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)})`,
-        address: `${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)}`,
+      const target = mapSelectionTarget;
+      const previousPickup = pickup;
+      const previousDestination = destination;
+      const loadingStop: LocationStop = {
+        label: 'Resolving place name...',
+        address: 'Fetching location name',
         lat: coords.lat,
         lng: coords.lng,
       };
-      if (mapSelectionTarget === 'pickup') {
-        setPickup(stop);
-      } else if (mapSelectionTarget === 'destination') {
-        setDestination(stop);
+      if (target === 'pickup') {
+        setPickup(loadingStop);
+      } else if (target === 'destination') {
+        setDestination(loadingStop);
       }
       setMapSelectionTarget(null);
       setDistanceKm(0);
+
+      void reverseGeocodePoint(coords).then((resolved) => {
+        const stop: LocationStop = {
+          label: resolved.label,
+          address: resolved.address,
+          lat: coords.lat,
+          lng: coords.lng,
+        };
+        if (target === 'pickup') {
+          if (previousDestination && areLocationsSame(stop, previousDestination)) {
+            setPickup(previousPickup);
+            setLocationError('Pickup and destination cannot be the same location.');
+            return;
+          }
+          setLocationError(null);
+          setPickup(stop);
+        } else if (target === 'destination') {
+          if (previousPickup && areLocationsSame(stop, previousPickup)) {
+            setDestination(previousDestination);
+            setLocationError('Destination cannot be the same as your pickup location.');
+            return;
+          }
+          setLocationError(null);
+          setDestination(stop);
+        }
+      });
     },
-    [mapSelectionTarget]
+    [mapSelectionTarget, pickup, destination]
   );
 
   const handleUseCurrentGpsAsPickup = useCallback(() => {
+    const previousPickup = pickup;
     setPickup({
-      label: 'Current GPS Location',
-      address: `${userLocation.lat.toFixed(4)}, ${userLocation.lng.toFixed(4)}`,
+      label: 'Locating current address...',
+      address: 'Resolving GPS address',
       lat: userLocation.lat,
       lng: userLocation.lng,
     });
     setDistanceKm(0);
-  }, [userLocation]);
+    void reverseGeocodePoint(userLocation).then((resolved) => {
+      const gpsStop: LocationStop = {
+        label: resolved.label,
+        address: resolved.address,
+        lat: userLocation.lat,
+        lng: userLocation.lng,
+      };
+      if (destination && areLocationsSame(gpsStop, destination)) {
+        setPickup(previousPickup);
+        setLocationError('Pickup and destination cannot be the same location.');
+        return;
+      }
+      setLocationError(null);
+      setPickup(gpsStop);
+    });
+  }, [userLocation, pickup, destination]);
 
   const handleSwapStops = useCallback(() => {
+    if (pickup && destination && areLocationsSame(pickup, destination)) {
+      setLocationError('Pickup and destination cannot be the same location.');
+      return;
+    }
+    setLocationError(null);
     setPickup(destination);
     setDestination(pickup);
     setDistanceKm(0);
@@ -299,6 +476,11 @@ export default function App() {
 
   const handleBookRide = useCallback(() => {
     if (!pickup || !destination || !fare) return;
+    if (areLocationsSame(pickup, destination)) {
+      setLocationError('Pickup and destination cannot be the same location.');
+      return;
+    }
+    setLocationError(null);
     const newRide: RideBooking = {
       id: `ride_${Date.now()}`,
       passengerName: profile.fullName,
@@ -309,6 +491,7 @@ export default function App() {
       durationMins: durationMins || Math.max(5, Math.round(computedDistanceKm * 3)),
       fare,
       status: 'searching',
+      roleContext: 'passenger',
       createdAt: new Date().toISOString(),
     };
     setActiveRide(newRide);
@@ -330,23 +513,81 @@ export default function App() {
       }
       if (prev.status === 'accepted') return {...prev, status: 'arriving'};
       if (prev.status === 'arriving') return {...prev, status: 'in_progress'};
-      if (prev.status === 'in_progress') return {...prev, status: 'completed'};
+      if (prev.status === 'in_progress') {
+        const completed = {...prev, status: 'completed' as const};
+        recordOrderInHistory(completed);
+        return completed;
+      }
       return prev;
     });
-  }, []);
+  }, [recordOrderInHistory]);
 
-  const handleBookPlaceAsDestination = useCallback((place: DiscoveredPlace) => {
-    setDestination({
-      label: place.name,
-      address: place.address,
-      lat: place.lat,
-      lng: place.lng,
-      placeId: place.id,
+  const handleCancelActiveRide = useCallback(() => {
+    setActiveRide((prev) => {
+      if (prev && prev.status !== 'completed') {
+        recordOrderInHistory({
+          ...prev,
+          status: 'cancelled',
+        });
+      }
+      return null;
     });
+  }, [recordOrderInHistory]);
+
+  const handleRebookOrder = useCallback((order: RideBooking) => {
+    if (areLocationsSame(order.pickup, order.destination)) {
+      setLocationError('Pickup and destination cannot be the same location.');
+      return;
+    }
+    setLocationError(null);
+    setPickup(order.pickup);
+    setDestination(order.destination);
+    setVehicleType(order.vehicleType);
     setDistanceKm(0);
+    setActiveRide(null);
     setActiveTab('ride');
     setMobileMapExpanded(false);
   }, []);
+
+  const handleBookPlaceAsPickup = useCallback(
+    (place: DiscoveredPlace) => {
+      const candidate: LocationStop = {
+        label: place.name,
+        address: place.address,
+        lat: place.lat,
+        lng: place.lng,
+        placeId: place.id,
+      };
+      if (!trySetPickup(candidate)) {
+        setActiveTab('ride');
+        setMobileMapExpanded(false);
+        return;
+      }
+      setActiveTab('ride');
+      setMobileMapExpanded(false);
+    },
+    [trySetPickup]
+  );
+
+  const handleBookPlaceAsDestination = useCallback(
+    (place: DiscoveredPlace) => {
+      const candidate: LocationStop = {
+        label: place.name,
+        address: place.address,
+        lat: place.lat,
+        lng: place.lng,
+        placeId: place.id,
+      };
+      if (!trySetDestination(candidate)) {
+        setActiveTab('ride');
+        setMobileMapExpanded(false);
+        return;
+      }
+      setActiveTab('ride');
+      setMobileMapExpanded(false);
+    },
+    [trySetDestination]
+  );
 
   const handleDiscoverCategory = useCallback(
     (category: 'fast_food' | 'resort_beach') => {
@@ -419,6 +660,12 @@ export default function App() {
 
   const handleCompleteRiderJob = useCallback(() => {
     if (!activeRiderJob) return;
+    recordOrderInHistory({
+      ...activeRiderJob,
+      status: 'completed',
+      roleContext: 'rider',
+      createdAt: new Date().toISOString(),
+    });
     setProfile((prev) => {
       const updated = {
         ...prev,
@@ -434,7 +681,7 @@ export default function App() {
       return updated;
     });
     setActiveRiderJob(null);
-  }, [activeRiderJob]);
+  }, [activeRiderJob, recordOrderInHistory]);
 
   const shellContent = (
     <div
@@ -542,6 +789,8 @@ export default function App() {
               ? 'Book Motorcycle or Taxi'
               : activeTab === 'explore'
               ? 'Fast Food & Resorts Nearby'
+              : activeTab === 'history'
+              ? 'Order History'
               : activeTab === 'rider'
               ? 'Rider Dispatch (+5% Bonus)'
               : 'Account & Role'}
@@ -570,11 +819,12 @@ export default function App() {
           aria-label="Primary navigation"
           className={`hidden ${
             mobilePreviewFrame ? '' : 'lg:grid'
-          } grid-cols-4 gap-1 p-1.5 mx-4 mt-3 rounded-2xl bg-[#EBF1ED]/90 border border-[#0F522B]/10 shrink-0`}
+          } grid-cols-5 gap-1 p-1.5 mx-4 mt-3 rounded-2xl bg-[#EBF1ED]/90 border border-[#0F522B]/10 shrink-0`}
         >
           {([
             {id: 'ride', label: 'Ride', icon: Navigation},
             {id: 'explore', label: 'Explore', icon: Compass},
+            {id: 'history', label: 'History', icon: History},
             {id: 'rider', label: 'Rider', icon: Bike},
             {id: 'account', label: 'Account', icon: User},
           ] as const).map((tab) => {
@@ -585,13 +835,13 @@ export default function App() {
                 key={tab.id}
                 type="button"
                 onClick={() => setActiveTab(tab.id)}
-                className={`h-10 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all whitespace-nowrap ${
+                className={`h-10 rounded-xl text-[11px] font-bold flex items-center justify-center gap-1 transition-all whitespace-nowrap ${
                   active
                     ? 'bg-[#0F522B] text-white shadow-sm'
                     : 'text-[#55625A] hover:text-[#101713]'
                 }`}
               >
-                <Icon className="w-3.5 h-3.5" />
+                <Icon className="w-3.5 h-3.5 shrink-0" />
                 <span>{tab.label}</span>
               </button>
             );
@@ -620,14 +870,9 @@ export default function App() {
               saturdayPromoActive={saturdayPromoActive}
               isActualSaturday={actualSaturday}
               activeRide={activeRide}
-              onSetPickup={(stop) => {
-                setPickup(stop);
-                setDistanceKm(0);
-              }}
-              onSetDestination={(stop) => {
-                setDestination(stop);
-                setDistanceKm(0);
-              }}
+              locationError={locationError}
+              onSetPickup={trySetPickup}
+              onSetDestination={trySetDestination}
               onSwapStops={handleSwapStops}
               onSelectVehicle={setVehicleType}
               onToggleSaturdayPreview={() => setSaturdayPreview((v) => !v)}
@@ -638,7 +883,7 @@ export default function App() {
               onUseCurrentGpsAsPickup={handleUseCurrentGpsAsPickup}
               onBookRide={handleBookRide}
               onAdvanceRideStatus={handleAdvanceRideStatus}
-              onCancelRide={() => setActiveRide(null)}
+              onCancelRide={handleCancelActiveRide}
             />
           )}
 
@@ -654,7 +899,15 @@ export default function App() {
                 setSelectedPlaceId(p.id);
                 setMobileMapExpanded(true);
               }}
+              onBookRideAsPickup={handleBookPlaceAsPickup}
               onBookRideToPlace={handleBookPlaceAsDestination}
+            />
+          )}
+
+          {activeTab === 'history' && (
+            <OrderHistoryPanel
+              orders={orderHistory}
+              onRebookOrder={handleRebookOrder}
             />
           )}
 
@@ -696,11 +949,12 @@ export default function App() {
         >
           <nav
             aria-label="Mobile bottom navigation"
-            className="grid grid-cols-4 items-center h-14 rounded-2xl glass-green text-white px-2"
+            className="grid grid-cols-5 items-center h-14 rounded-2xl glass-green text-white px-1.5"
           >
             {([
               {id: 'ride', label: 'Ride', icon: Navigation},
               {id: 'explore', label: 'Explore', icon: Compass},
+              {id: 'history', label: 'History', icon: History},
               {id: 'rider', label: 'Rider', icon: Bike},
               {id: 'account', label: 'Account', icon: User},
             ] as const).map((tab) => {
@@ -737,6 +991,14 @@ export default function App() {
           mobilePreviewFrame ? 'w-full' : 'lg:order-2 lg:h-full'
         }`}
       >
+        {locationError && (
+          <div className="pointer-events-none absolute bottom-3 left-3 right-3 z-30 flex justify-center">
+            <div className="pointer-events-auto flex items-center gap-2 px-3.5 py-2 rounded-xl bg-red-600 text-white text-xs font-semibold shadow-xl">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{locationError}</span>
+            </div>
+          </div>
+        )}
         <GoogleMapsWorkspace
           userLocation={userLocation}
           pickup={pickup}
@@ -749,6 +1011,7 @@ export default function App() {
           onRouteCalculated={handleRouteCalculated}
           onDiscoveredPlacesChange={handleDiscoveredPlacesChange}
           onSelectDiscoveredPlace={(p) => setSelectedPlaceId(p.id || null)}
+          onBookPlaceAsPickup={handleBookPlaceAsPickup}
           onBookPlaceAsDestination={handleBookPlaceAsDestination}
           onRecenterUser={() => {
             if ('geolocation' in navigator) {

@@ -1,7 +1,7 @@
 export type UserRole = 'passenger' | 'rider' | 'both';
 export type ActiveMode = 'passenger' | 'rider';
 export type VehicleType = 'motorcycle' | 'taxi';
-export type AppTab = 'ride' | 'explore' | 'rider' | 'account';
+export type AppTab = 'ride' | 'explore' | 'history' | 'rider' | 'account';
 export type DiscoveryCategory = 'fast_food' | 'resort_beach' | 'all';
 export type MapSelectionTarget = 'pickup' | 'destination' | null;
 
@@ -35,7 +35,8 @@ export type RideStatus =
   | 'accepted'
   | 'arriving'
   | 'in_progress'
-  | 'completed';
+  | 'completed'
+  | 'cancelled';
 
 export interface RideBooking {
   id: string;
@@ -50,6 +51,7 @@ export interface RideBooking {
   durationMins: number;
   fare: FareBreakdown;
   status: RideStatus;
+  roleContext?: 'passenger' | 'rider';
   createdAt: string;
 }
 

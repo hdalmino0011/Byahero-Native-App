@@ -1,6 +1,8 @@
 package com.hddev.byahero.data
 
 import android.content.Context
+import android.location.Geocoder
+import android.os.Build
 import com.google.android.gms.maps.model.LatLng
 import com.google.android.libraries.places.api.Places
 import com.google.android.libraries.places.api.model.CircularBounds
@@ -12,9 +14,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
+import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import java.util.Locale
 import kotlin.coroutines.resume
 
 object PlaceSearchHelper {
@@ -22,6 +26,99 @@ object PlaceSearchHelper {
     val hasValidMapsKey: Boolean
         get() = BuildConfig.MAPS_API_KEY.isNotBlank() &&
             !BuildConfig.MAPS_API_KEY.contains("Placeholder", ignoreCase = true)
+
+    suspend fun reverseGeocode(
+        context: Context,
+        point: LatLng
+    ): Pair<String, String> = withContext(Dispatchers.IO) {
+        // 1. Try OpenStreetMap Nominatim reverse geocoding (gives specific venue/building/street names cleanly)
+        try {
+            val endpoint =
+                "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${point.latitude}&lon=${point.longitude}&zoom=18&addressdetails=1"
+            val conn = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 4500
+                readTimeout = 4500
+                setRequestProperty("User-Agent", "BYAHERO-Android/1.0")
+            }
+            if (conn.responseCode == 200) {
+                val body = conn.inputStream.bufferedReader().readText()
+                val obj = JSONObject(body)
+                val addr = obj.optJSONObject("address")
+                val venueName = obj.optString("name").ifBlank {
+                    addr?.optString("amenity")
+                        ?.ifBlank { addr.optString("shop") }
+                        ?.ifBlank { addr.optString("tourism") }
+                        ?.ifBlank { addr.optString("building") }
+                        .orEmpty()
+                }
+                val road = addr?.optString("road").orEmpty()
+                val suburb = addr?.optString("suburb")
+                    ?.ifBlank { addr.optString("neighbourhood") }
+                    ?.ifBlank { addr.optString("village") }
+                    ?.ifBlank { addr.optString("town") }
+                    ?.ifBlank { addr.optString("city") }
+                    .orEmpty()
+
+                val primary = venueName.ifBlank { road }.ifBlank { suburb }
+                val label = when {
+                    primary.isNotBlank() && suburb.isNotBlank() && !primary.equals(suburb, ignoreCase = true) ->
+                        "$primary, $suburb"
+                    primary.isNotBlank() -> primary
+                    else -> obj.optString("display_name").substringBeforeLast(",").trim()
+                }
+                if (label.isNotBlank()) {
+                    conn.disconnect()
+                    return@withContext label to obj.optString("display_name", label)
+                }
+            }
+            conn.disconnect()
+        } catch (_: Exception) {
+            // Fall through to Android Geocoder
+        }
+
+        // 2. Fallback to Android system Geocoder
+        try {
+            if (Geocoder.isPresent()) {
+                val geocoder = Geocoder(context, Locale.getDefault())
+                @Suppress("DEPRECATION")
+                val addresses = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    suspendCancellableCoroutine { cont ->
+                        geocoder.getFromLocation(
+                            point.latitude,
+                            point.longitude,
+                            1,
+                            object : Geocoder.GeocodeListener {
+                                override fun onGeocode(addresses: MutableList<android.location.Address>) {
+                                    if (cont.isActive) cont.resume(addresses)
+                                }
+
+                                override fun onError(errorMessage: String?) {
+                                    if (cont.isActive) cont.resume(emptyList())
+                                }
+                            }
+                        )
+                    }
+                } else {
+                    geocoder.getFromLocation(point.latitude, point.longitude, 1)
+                }
+                val first = addresses?.firstOrNull()
+                if (first != null) {
+                    val feature = first.featureName?.takeIf { it.isNotBlank() && it.length > 2 && !it.all(Char::isDigit) }
+                    val road = first.thoroughfare?.takeIf { it.isNotBlank() }
+                    val area = first.subLocality?.takeIf { it.isNotBlank() } ?: first.locality?.takeIf { it.isNotBlank() }
+                    val main = feature ?: road ?: area ?: "Selected Location"
+                    val label = if (area != null && !main.equals(area, ignoreCase = true)) "$main, $area" else main
+                    val full = first.getAddressLine(0) ?: label
+                    return@withContext label to full
+                }
+            }
+        } catch (_: Exception) {
+            // Ignore geocoder failure
+        }
+
+        "Selected Location" to String.format("%.5f, %.5f", point.latitude, point.longitude)
+    }
 
     suspend fun searchPlaces(
         context: Context,
@@ -33,7 +130,7 @@ object PlaceSearchHelper {
             val googleResults = searchViaPlacesSdk(context, query, category, center)
             if (googleResults.isNotEmpty()) return googleResults
         }
-        return searchViaNominatim(query, category, center)
+        return searchViaOsmAndNominatim(query, category, center)
     }
 
     private suspend fun searchViaPlacesSdk(
@@ -51,7 +148,7 @@ object PlaceSearchHelper {
             Place.Field.RATING
         )
         val request = SearchByTextRequest.builder(query, fields)
-            .setLocationBias(CircularBounds.newInstance(center, 20000.0))
+            .setLocationBias(CircularBounds.newInstance(center, 25000.0))
             .setMaxResultCount(10)
             .build()
 
@@ -83,24 +180,22 @@ object PlaceSearchHelper {
             }
     }
 
-    private suspend fun searchViaNominatim(
+    private suspend fun searchViaOsmAndNominatim(
         query: String,
         category: String,
         center: LatLng
     ): List<NearbySpot> = withContext(Dispatchers.IO) {
         val aggregated = mutableListOf<NearbySpot>()
 
-        // 1. Try Overpass API first for accurate nearby POIs around real phone GPS
-        try {
-            val radiusMeters = if (category == "resort_beach") 35000 else 8000
-            val overpassFilter = when (category) {
-                "fast_food" ->
+        // 1. Overpass API for accurate local fast food & resort/beach POIs
+        if (category == "fast_food" || category == "resort_beach") {
+            try {
+                val radiusMeters = if (category == "resort_beach") 35000 else 8000
+                val overpassFilter = if (category == "fast_food") {
                     """[out:json][timeout:10];(node["amenity"="fast_food"](around:$radiusMeters,${center.latitude},${center.longitude});way["amenity"="fast_food"](around:$radiusMeters,${center.latitude},${center.longitude});node["name"~"Jollibee|McDonald|KFC|Chowking|Burger King",i](around:$radiusMeters,${center.latitude},${center.longitude}););out center 15;"""
-                "resort_beach" ->
+                } else {
                     """[out:json][timeout:10];(node["tourism"~"resort|hotel"](around:$radiusMeters,${center.latitude},${center.longitude});way["tourism"="resort"](around:$radiusMeters,${center.latitude},${center.longitude});node["natural"="beach"](around:$radiusMeters,${center.latitude},${center.longitude});way["natural"="beach"](around:$radiusMeters,${center.latitude},${center.longitude}););out center 15;"""
-                else -> ""
-            }
-            if (overpassFilter.isNotEmpty()) {
+                }
                 val conn = (URL("https://overpass-api.de/api/interpreter").openConnection() as HttpURLConnection).apply {
                     requestMethod = "POST"
                     doOutput = true
@@ -114,11 +209,12 @@ object PlaceSearchHelper {
                 }
                 if (conn.responseCode == 200) {
                     val body = conn.inputStream.bufferedReader().readText()
-                    val elements = org.json.JSONObject(body).optJSONArray("elements") ?: JSONArray()
+                    val elements = JSONObject(body).optJSONArray("elements") ?: JSONArray()
                     for (i in 0 until elements.length()) {
                         val el = elements.getJSONObject(i)
                         val tags = el.optJSONObject("tags") ?: continue
-                        val name = tags.optString("name").ifBlank { continue }
+                        val name = tags.optString("name")
+                        if (name.isBlank()) continue
                         val cObj = el.optJSONObject("center")
                         val lat = el.optDouble("lat", Double.NaN).let { if (it.isNaN()) cObj?.optDouble("lat", Double.NaN) ?: Double.NaN else it }
                         val lng = el.optDouble("lon", Double.NaN).let { if (it.isNaN()) cObj?.optDouble("lon", Double.NaN) ?: Double.NaN else it }
@@ -129,7 +225,7 @@ object PlaceSearchHelper {
                             NearbySpot(
                                 id = "ov_${el.optLong("id", i.toLong())}",
                                 name = name,
-                                address = street.ifBlank { "Nearby ${category.replace('_', ' ')}" },
+                                address = street.ifBlank { "Nearby location" },
                                 lat = lat,
                                 lng = lng,
                                 rating = null,
@@ -140,9 +236,9 @@ object PlaceSearchHelper {
                     }
                 }
                 conn.disconnect()
+            } catch (_: Exception) {
+                // Fall through to Nominatim
             }
-        } catch (_: Exception) {
-            // Fall through to Nominatim
         }
 
         if (aggregated.isNotEmpty()) {
@@ -152,21 +248,22 @@ object PlaceSearchHelper {
                 .take(12)
         }
 
-        // 2. Fallback to Nominatim bounded search
+        // 2. Nominatim place search (handles both free-text queries and category fallback)
         val searchQueries = when (category) {
             "fast_food" -> listOf("Jollibee", "McDonald's", "KFC")
             "resort_beach" -> listOf("resort", "beach")
             else -> listOf(query)
         }
 
-        val delta = if (category == "resort_beach") 0.45 else 0.15
+        val delta = if (category == "resort_beach") 0.45 else 0.25
         val viewbox = "${center.longitude - delta},${center.latitude + delta},${center.longitude + delta},${center.latitude - delta}"
 
         for (q in searchQueries) {
+            if (q.isBlank()) continue
             try {
                 val encoded = URLEncoder.encode(q, "UTF-8")
                 val endpoint =
-                    "https://nominatim.openstreetmap.org/search?format=json&q=$encoded&limit=5&viewbox=$viewbox&bounded=0"
+                    "https://nominatim.openstreetmap.org/search?format=jsonv2&q=$encoded&limit=6&viewbox=$viewbox&bounded=0"
                 val conn = (URL(endpoint).openConnection() as HttpURLConnection).apply {
                     requestMethod = "GET"
                     connectTimeout = 5000
@@ -206,7 +303,7 @@ object PlaceSearchHelper {
                 }
                 conn.disconnect()
             } catch (_: Exception) {
-                // ignore single query timeout and try next
+                // Ignore query error and continue
             }
         }
 

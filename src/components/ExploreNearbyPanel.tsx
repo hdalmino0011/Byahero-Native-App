@@ -11,6 +11,7 @@ interface ExploreNearbyPanelProps {
   selectedPlaceId: string | null;
   onDiscoverCategory: (category: 'fast_food' | 'resort_beach') => void;
   onSelectPlace: (place: DiscoveredPlace) => void;
+  onBookRideAsPickup: (place: DiscoveredPlace) => void;
   onBookRideToPlace: (place: DiscoveredPlace) => void;
 }
 
@@ -22,6 +23,7 @@ export const ExploreNearbyPanel: React.FC<ExploreNearbyPanelProps> = ({
   selectedPlaceId,
   onDiscoverCategory,
   onSelectPlace,
+  onBookRideAsPickup,
   onBookRideToPlace,
 }) => {
   return (
@@ -158,9 +160,16 @@ export const ExploreNearbyPanel: React.FC<ExploreNearbyPanelProps> = ({
                 <button
                   type="button"
                   onClick={() => onSelectPlace(place)}
-                  className="flex-1 h-10 rounded-xl bg-[#EBF1ED] hover:bg-[#DCE7E0] text-xs font-semibold text-[#101713] transition-colors"
+                  className="h-10 px-3 rounded-xl bg-[#EBF1ED] hover:bg-[#DCE7E0] text-xs font-semibold text-[#101713] transition-colors"
                 >
-                  Show on Map
+                  Map
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onBookRideAsPickup(place)}
+                  className="flex-1 h-10 rounded-xl bg-white border border-[#0F522B]/25 hover:border-[#0F522B] text-xs font-bold text-[#0F522B] transition-colors"
+                >
+                  Set Pickup
                 </button>
                 <button
                   type="button"

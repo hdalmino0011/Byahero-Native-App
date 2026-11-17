@@ -150,6 +150,9 @@ fun NativeInteractiveMap(
     destinationLocation: LatLng?,
     discoveredSpots: List<NearbySpot>,
     recenterSeq: Int = 0,
+    focusTarget: LatLng? = null,
+    focusSeq: Int = 0,
+    onSpotClick: ((NearbySpot) -> Unit)? = null,
     onMapClick: (LatLng) -> Unit
 ) {
     val density = LocalDensity.current
@@ -166,6 +169,14 @@ fun NativeInteractiveMap(
         if (recenterSeq > 0) {
             centerLat = userLocation.latitude
             centerLng = userLocation.longitude
+            zoom = 15
+        }
+    }
+
+    LaunchedEffect(focusSeq) {
+        if (focusSeq > 0 && focusTarget != null) {
+            centerLat = focusTarget.latitude
+            centerLng = focusTarget.longitude
             zoom = 15
         }
     }
@@ -348,7 +359,13 @@ fun NativeInteractiveMap(
                                 y = (pos.y - 30.dp.toPx()).roundToInt()
                             )
                         }
-                        .clickable { onMapClick(LatLng(spot.lat, spot.lng)) },
+                        .clickable {
+                            if (onSpotClick != null) {
+                                onSpotClick(spot)
+                            } else {
+                                onMapClick(LatLng(spot.lat, spot.lng))
+                            }
+                        },
                     shape = RoundedCornerShape(10.dp),
                     color = ByaheroWhite,
                     border = BorderStroke(1.5.dp, ByaheroDarkGreen),

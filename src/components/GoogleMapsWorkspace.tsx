@@ -39,6 +39,7 @@ interface GoogleMapsWorkspaceProps {
   onRouteCalculated: (distanceKm: number, durationMins: number) => void;
   onDiscoveredPlacesChange: (places: DiscoveredPlace[], categoryLabel: string) => void;
   onSelectDiscoveredPlace: (place: DiscoveredPlace) => void;
+  onBookPlaceAsPickup: (place: DiscoveredPlace) => void;
   onBookPlaceAsDestination: (place: DiscoveredPlace) => void;
   onRecenterUser: () => void;
   onCancelMapTap: () => void;
@@ -50,8 +51,9 @@ const PlaceMarkerWithInfo: React.FC<{
   place: DiscoveredPlace;
   isSelected: boolean;
   onSelect: (place: DiscoveredPlace) => void;
+  onSetPickup: (place: DiscoveredPlace) => void;
   onBookHere: (place: DiscoveredPlace) => void;
-}> = ({place, isSelected, onSelect, onBookHere}) => {
+}> = ({place, isSelected, onSelect, onSetPickup, onBookHere}) => {
   const [markerRef, marker] = useAdvancedMarkerRef();
   const isFastFood = place.category === 'fast_food';
   const isSearch = place.category === 'search';
@@ -110,13 +112,22 @@ const PlaceMarkerWithInfo: React.FC<{
                 </span>
               )}
             </div>
-            <button
-              type="button"
-              onClick={() => onBookHere(place)}
-              className="mt-2.5 w-full h-9 rounded-lg bg-[#0F522B] text-white text-xs font-semibold hover:bg-[#146C3A] transition-colors"
-            >
-              Ride Here with BYAHERO
-            </button>
+            <div className="mt-2.5 flex gap-1.5">
+              <button
+                type="button"
+                onClick={() => onSetPickup(place)}
+                className="flex-1 h-9 rounded-lg bg-[#EBF1ED] text-[#0F522B] text-xs font-semibold hover:bg-[#DCE7E0] transition-colors"
+              >
+                Set Pickup
+              </button>
+              <button
+                type="button"
+                onClick={() => onBookHere(place)}
+                className="flex-1 h-9 rounded-lg bg-[#0F522B] text-white text-xs font-semibold hover:bg-[#146C3A] transition-colors"
+              >
+                Set Dest
+              </button>
+            </div>
           </div>
         </InfoWindow>
       )}
@@ -136,6 +147,7 @@ export const GoogleMapsWorkspace: React.FC<GoogleMapsWorkspaceProps> = ({
   onRouteCalculated,
   onDiscoveredPlacesChange,
   onSelectDiscoveredPlace,
+  onBookPlaceAsPickup,
   onBookPlaceAsDestination,
   onRecenterUser,
   onCancelMapTap,
@@ -397,7 +409,10 @@ export const GoogleMapsWorkspace: React.FC<GoogleMapsWorkspaceProps> = ({
     [mapSelectionTarget, onMapTapSelect]
   );
 
-  const handleSearchSuggestionSelect = async (item: PlaceSuggestionItem) => {
+  const handleSearchSuggestionSelect = async (
+    item: PlaceSuggestionItem,
+    assignAs?: 'pickup' | 'destination'
+  ) => {
     const resolved = await resolvePlace(item);
     if (!resolved) return;
 
@@ -422,6 +437,11 @@ export const GoogleMapsWorkspace: React.FC<GoogleMapsWorkspaceProps> = ({
 
     onDiscoveredPlacesChange([discovered], 'Searched Location');
     onSelectDiscoveredPlace(discovered);
+    if (assignAs === 'pickup') {
+      onBookPlaceAsPickup(discovered);
+    } else if (assignAs === 'destination') {
+      onBookPlaceAsDestination(discovered);
+    }
     if (map) {
       map.panTo({lat: resolved.lat, lng: resolved.lng});
       map.setZoom(15);
@@ -487,20 +507,40 @@ export const GoogleMapsWorkspace: React.FC<GoogleMapsWorkspaceProps> = ({
               <div className="px-4 py-3 text-xs text-[#55625A]">Searching Google Places...</div>
             )}
             {suggestions.map((s) => (
-              <button
+              <div
                 key={s.id}
-                type="button"
-                onClick={() => void handleSearchSuggestionSelect(s)}
-                className="w-full min-h-[46px] px-4 py-2.5 text-left hover:bg-[#0F522B]/5 transition-colors flex items-start gap-2.5"
+                className="w-full min-h-[48px] px-3.5 py-2.5 hover:bg-[#0F522B]/5 transition-colors flex items-center justify-between gap-2"
               >
-                <MapPin className="w-4 h-4 text-[#0F522B] mt-0.5 shrink-0" />
-                <div className="min-w-0">
-                  <div className="text-xs font-semibold text-[#101713] truncate">{s.mainText}</div>
-                  {s.secondaryText && (
-                    <div className="text-[11px] text-[#55625A] truncate">{s.secondaryText}</div>
-                  )}
+                <button
+                  type="button"
+                  onClick={() => void handleSearchSuggestionSelect(s)}
+                  className="flex-1 min-w-0 text-left flex items-start gap-2.5"
+                >
+                  <MapPin className="w-4 h-4 text-[#0F522B] mt-0.5 shrink-0" />
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold text-[#101713] truncate">{s.mainText}</div>
+                    {s.secondaryText && (
+                      <div className="text-[11px] text-[#55625A] truncate">{s.secondaryText}</div>
+                    )}
+                  </div>
+                </button>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => void handleSearchSuggestionSelect(s, 'pickup')}
+                    className="h-7 px-2 rounded-lg bg-[#EBF1ED] hover:bg-[#DCE7E0] text-[#0F522B] text-[10px] font-bold whitespace-nowrap"
+                  >
+                    Pickup
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleSearchSuggestionSelect(s, 'destination')}
+                    className="h-7 px-2 rounded-lg bg-[#0F522B] hover:bg-[#146C3A] text-white text-[10px] font-bold whitespace-nowrap"
+                  >
+                    Dest
+                  </button>
                 </div>
-              </button>
+              </div>
             ))}
           </div>
         )}
@@ -634,6 +674,7 @@ export const GoogleMapsWorkspace: React.FC<GoogleMapsWorkspaceProps> = ({
             place={place}
             isSelected={selectedPlace?.id === place.id}
             onSelect={onSelectDiscoveredPlace}
+            onSetPickup={onBookPlaceAsPickup}
             onBookHere={onBookPlaceAsDestination}
           />
         ))}

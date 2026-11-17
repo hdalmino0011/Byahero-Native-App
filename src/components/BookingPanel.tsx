@@ -1,5 +1,6 @@
 import React, {useState} from 'react';
 import {
+  AlertCircle,
   ArrowUpDown,
   CheckCircle2,
   Clock,
@@ -8,6 +9,7 @@ import {
   Navigation,
   Percent,
   Route as RouteIcon,
+  X,
 } from 'lucide-react';
 import {
   FareBreakdown,
@@ -18,6 +20,7 @@ import {
   VehicleType,
 } from '../types/byahero';
 import {formatPhp} from '../utils/pricing';
+import {areLocationsSame} from '../utils/locationMatch';
 import {
   PlaceSuggestionItem,
   useAutocompleteSuggestions,
@@ -35,6 +38,7 @@ interface BookingPanelProps {
   saturdayPromoActive: boolean;
   isActualSaturday: boolean;
   activeRide: RideBooking | null;
+  locationError?: string | null;
   onSetPickup: (stop: LocationStop | null) => void;
   onSetDestination: (stop: LocationStop | null) => void;
   onSwapStops: () => void;
@@ -58,6 +62,7 @@ export const BookingPanel: React.FC<BookingPanelProps> = ({
   saturdayPromoActive,
   isActualSaturday,
   activeRide,
+  locationError,
   onSetPickup,
   onSetDestination,
   onSwapStops,
@@ -69,15 +74,50 @@ export const BookingPanel: React.FC<BookingPanelProps> = ({
   onAdvanceRideStatus,
   onCancelRide,
 }) => {
+  const stopsAreIdentical = Boolean(
+    pickup && destination && areLocationsSame(pickup, destination)
+  );
   const [pickupQuery, setPickupQuery] = useState('');
   const [destQuery, setDestQuery] = useState('');
   const [focusedField, setFocusedField] = useState<'pickup' | 'destination' | null>(
     null
   );
 
+  const [fallbackResults, setFallbackResults] = useState<LocationStop[]>([]);
+
   const activeInput = focusedField === 'pickup' ? pickupQuery : destQuery;
   const {suggestions, isLoading, resolvePlace, resetSession} =
     useAutocompleteSuggestions(activeInput, userLocation);
+
+  const runFallbackSearch = async (q: string) => {
+    const trimmed = q.trim();
+    if (trimmed.length < 2) {
+      setFallbackResults([]);
+      return;
+    }
+    try {
+      const delta = 0.35;
+      const viewbox = `${userLocation.lng - delta},${userLocation.lat + delta},${userLocation.lng + delta},${userLocation.lat - delta}`;
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(trimmed)}&limit=5&viewbox=${viewbox}&bounded=0`,
+        {headers: {Accept: 'application/json'}}
+      );
+      if (res.ok) {
+        const rows = (await res.json()) as Array<{place_id: number; display_name: string; name?: string; lat: string; lon: string}>;
+        setFallbackResults(
+          rows.map((r) => ({
+            placeId: String(r.place_id),
+            label: r.name || r.display_name.split(',')[0].trim(),
+            address: r.display_name,
+            lat: Number(r.lat),
+            lng: Number(r.lon),
+          }))
+        );
+      }
+    } catch {
+      // ignore
+    }
+  };
 
   const handleSelectSuggestion = async (item: PlaceSuggestionItem) => {
     const resolved = await resolvePlace(item);
@@ -89,6 +129,20 @@ export const BookingPanel: React.FC<BookingPanelProps> = ({
       onSetDestination(resolved);
       setDestQuery('');
     }
+    setFallbackResults([]);
+    setFocusedField(null);
+    resetSession();
+  };
+
+  const handleSelectFallbackStop = (stop: LocationStop) => {
+    if (focusedField === 'pickup') {
+      onSetPickup(stop);
+      setPickupQuery('');
+    } else {
+      onSetDestination(stop);
+      setDestQuery('');
+    }
+    setFallbackResults([]);
     setFocusedField(null);
     resetSession();
   };
@@ -268,17 +322,40 @@ export const BookingPanel: React.FC<BookingPanelProps> = ({
               }
               onFocus={() => {
                 setFocusedField('pickup');
-                setPickupQuery(pickup?.label || '');
+                setPickupQuery('');
               }}
               onChange={(e) => {
                 setFocusedField('pickup');
                 setPickupQuery(e.target.value);
+                if (suggestions.length === 0 && e.target.value.trim().length >= 3) {
+                  void runFallbackSearch(e.target.value);
+                }
               }}
-              placeholder="Enter pickup or tap GPS"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  void runFallbackSearch(pickupQuery);
+                }
+              }}
+              placeholder={pickup?.label || 'Search pickup place or tap GPS'}
               aria-label="Pickup location"
-              className="w-full bg-transparent text-sm font-semibold text-[#101713] placeholder:text-[#86948C] focus:outline-none truncate"
+              className="w-full bg-transparent text-sm font-semibold text-[#101713] placeholder:text-[#55625A] focus:outline-none truncate"
             />
           </div>
+          {focusedField === 'pickup' && pickupQuery && (
+            <button
+              type="button"
+              onClick={() => {
+                setPickupQuery('');
+                setFallbackResults([]);
+                resetSession();
+              }}
+              aria-label="Clear pickup search"
+              className="min-h-[34px] min-w-[34px] flex items-center justify-center rounded-lg text-[#55625A] hover:text-[#101713]"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
           <button
             type="button"
             onClick={onUseCurrentGpsAsPickup}
@@ -323,17 +400,40 @@ export const BookingPanel: React.FC<BookingPanelProps> = ({
               }
               onFocus={() => {
                 setFocusedField('destination');
-                setDestQuery(destination?.label || '');
+                setDestQuery('');
               }}
               onChange={(e) => {
                 setFocusedField('destination');
                 setDestQuery(e.target.value);
+                if (suggestions.length === 0 && e.target.value.trim().length >= 3) {
+                  void runFallbackSearch(e.target.value);
+                }
               }}
-              placeholder="Where are you heading?"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  void runFallbackSearch(destQuery);
+                }
+              }}
+              placeholder={destination?.label || 'Search destination place'}
               aria-label="Destination location"
-              className="w-full bg-transparent text-sm font-semibold text-[#101713] placeholder:text-[#86948C] focus:outline-none truncate"
+              className="w-full bg-transparent text-sm font-semibold text-[#101713] placeholder:text-[#55625A] focus:outline-none truncate"
             />
           </div>
+          {focusedField === 'destination' && destQuery && (
+            <button
+              type="button"
+              onClick={() => {
+                setDestQuery('');
+                setFallbackResults([]);
+                resetSession();
+              }}
+              aria-label="Clear destination search"
+              className="min-h-[34px] min-w-[34px] flex items-center justify-center rounded-lg text-[#55625A] hover:text-[#101713]"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
           <button
             type="button"
             onClick={() => onStartMapPick('destination')}
@@ -344,11 +444,11 @@ export const BookingPanel: React.FC<BookingPanelProps> = ({
         </div>
 
         {/* Autocomplete Suggestions List */}
-        {focusedField && (suggestions.length > 0 || isLoading) && (
+        {focusedField && (suggestions.length > 0 || fallbackResults.length > 0 || isLoading) && (
           <div className="glass-surface rounded-2xl overflow-hidden divide-y divide-[#0F522B]/10 shadow-xl">
-            {isLoading && suggestions.length === 0 && (
+            {isLoading && suggestions.length === 0 && fallbackResults.length === 0 && (
               <div className="px-4 py-3 text-xs text-[#55625A]">
-                Fetching Google Places suggestions...
+                Searching places...
               </div>
             )}
             {suggestions.map((item) => (
@@ -371,6 +471,48 @@ export const BookingPanel: React.FC<BookingPanelProps> = ({
                 </div>
               </button>
             ))}
+            {suggestions.length === 0 &&
+              fallbackResults.map((stop, idx) => {
+                const conflictsOpposite =
+                  focusedField === 'pickup'
+                    ? areLocationsSame(stop, destination)
+                    : areLocationsSame(stop, pickup);
+                return (
+                  <button
+                    key={stop.placeId || `fb_${idx}`}
+                    type="button"
+                    onClick={() => handleSelectFallbackStop(stop)}
+                    className="w-full min-h-[46px] px-3.5 py-2.5 text-left hover:bg-[#0F522B]/5 transition-colors flex items-center justify-between gap-2.5"
+                  >
+                    <div className="flex items-start gap-2.5 min-w-0">
+                      <MapPin className="w-4 h-4 text-[#0F522B] mt-0.5 shrink-0" />
+                      <div className="min-w-0">
+                        <div className="text-xs font-semibold text-[#101713] truncate">
+                          {stop.label}
+                        </div>
+                        <div className="text-[11px] text-[#55625A] truncate">
+                          {stop.address}
+                        </div>
+                      </div>
+                    </div>
+                    {conflictsOpposite && (
+                      <span className="text-[10px] font-bold text-red-700 shrink-0">
+                        {focusedField === 'pickup' ? 'Selected as Dest' : 'Selected as Pickup'}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+          </div>
+        )}
+
+        {(locationError || stopsAreIdentical) && (
+          <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-red-50 border border-red-200 text-xs font-medium text-red-700">
+            <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
+            <span>
+              {locationError ||
+                'Pickup and destination cannot be the same location.'}
+            </span>
           </div>
         )}
       </div>
@@ -447,7 +589,7 @@ export const BookingPanel: React.FC<BookingPanelProps> = ({
       </div>
 
       {/* Fare & Route Summary */}
-      {pickup && destination && fare ? (
+      {pickup && destination && fare && !stopsAreIdentical ? (
         <div className="p-3.5 rounded-2xl glass-surface space-y-2.5">
           <div className="flex items-center justify-between text-xs text-[#55625A] tabular-nums">
             <span className="inline-flex items-center gap-1.5">
@@ -483,18 +625,20 @@ export const BookingPanel: React.FC<BookingPanelProps> = ({
         </div>
       ) : (
         <div className="px-4 py-3 rounded-2xl glass-surface text-xs text-[#55625A]">
-          Select a pickup and destination (or pick a restaurant or resort in Explore) to calculate live route and fare.
+          {stopsAreIdentical
+            ? 'Please choose different pickup and destination locations to calculate your fare.'
+            : 'Select a pickup and destination (or pick a restaurant or resort in Explore) to calculate live route and fare.'}
         </div>
       )}
 
       {/* Primary Booking CTA */}
       <button
         type="button"
-        disabled={!pickup || !destination || !fare}
+        disabled={!pickup || !destination || !fare || stopsAreIdentical}
         onClick={onBookRide}
         className="w-full h-12 rounded-xl bg-[#0F522B] hover:bg-[#146C3A] disabled:bg-[#DCE4DF] disabled:text-[#7E8C84] text-white font-bold text-sm transition-all active:scale-[0.99] shadow-lg"
       >
-        {pickup && destination && fare
+        {pickup && destination && fare && !stopsAreIdentical
           ? `Book ${vehicleType === 'motorcycle' ? 'Moto' : 'Taxi'} · ${formatPhp(fare.finalFare)}`
           : 'Select Pickup & Destination'}
       </button>

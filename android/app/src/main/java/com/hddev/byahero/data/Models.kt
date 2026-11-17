@@ -23,7 +23,8 @@ enum class RideStatus {
     ACCEPTED,
     ARRIVING,
     IN_PROGRESS,
-    COMPLETED
+    COMPLETED,
+    CANCELLED
 }
 
 data class UserProfile(
@@ -77,7 +78,9 @@ data class ActiveRide(
     val fare: FareQuote,
     val status: RideStatus,
     val riderName: String? = null,
-    val riderPlate: String? = null
+    val riderPlate: String? = null,
+    val createdAtLabel: String = "Just now",
+    val roleContext: String = "passenger"
 )
 
 @Serializable
