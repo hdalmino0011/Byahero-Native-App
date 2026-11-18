@@ -1,6 +1,6 @@
 import React, {useEffect} from 'react';
 import {motion, AnimatePresence} from 'motion/react';
-import {ByaheroMotorcycleVector} from './VectorGraphics';
+import {ByaheroMotorcycleVector, ByaheroWordmarkVector} from './VectorGraphics';
 
 interface SplashIntroProps {
   visible: boolean;
@@ -54,14 +54,17 @@ export const SplashIntro: React.FC<SplashIntroProps> = ({visible, onFinish}) => 
               className="w-48 h-[2px] bg-gradient-to-r from-transparent via-emerald-400 to-transparent mb-6 origin-center"
             />
 
-            <motion.h1
-              initial={{y: 18, opacity: 0, letterSpacing: '0.28em'}}
-              animate={{y: 0, opacity: 1, letterSpacing: '0.14em'}}
+            <motion.div
+              initial={{y: 18, opacity: 0, scale: 0.96}}
+              animate={{y: 0, opacity: 1, scale: 1}}
               transition={{duration: 0.75, delay: 0.35, ease: [0.16, 1, 0.3, 1]}}
-              className="text-4xl sm:text-5xl font-extrabold tracking-[0.14em] text-white"
+              className="flex items-center justify-center"
             >
-              BYAHERO
-            </motion.h1>
+              <ByaheroWordmarkVector
+                lightSurface={false}
+                className="h-11 sm:h-14 w-auto drop-shadow-[0_10px_24px_rgba(16,185,129,0.28)]"
+              />
+            </motion.div>
 
             <motion.p
               initial={{y: 10, opacity: 0}}

@@ -17,6 +17,7 @@ import {
   Trash2,
   User,
 } from 'lucide-react';
+import {ByaheroWordmarkVector} from './VectorGraphics';
 import {
   ActiveMode,
   FavoriteDestination,
@@ -792,9 +793,12 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
 
       {activeSection === 'about' && (
         <div className="space-y-3.5">
-          <div className="p-4 rounded-2xl glass-green text-white space-y-1.5">
-            <div className="text-sm font-extrabold tracking-wide">
-              BYAHERO by HDDEV · Version 2.4.0
+          <div className="p-4 rounded-2xl glass-green text-white space-y-2">
+            <div className="flex items-center gap-2.5">
+              <ByaheroWordmarkVector lightSurface={false} className="h-5 w-auto" />
+              <span className="text-xs font-bold text-emerald-200">
+                by HDDEV · v2.6.0 (2026)
+              </span>
             </div>
             <p className="text-xs text-emerald-100 leading-relaxed">
               Dual-role motorcycle and taxi ride-hailing & nearby discovery platform engineered for commuters and partner riders.

@@ -1,7 +1,7 @@
 import React, {useState} from 'react';
 import {Bike, Car, Eye, EyeOff, Lock, Mail, User} from 'lucide-react';
 import {UserProfile, UserRole, VehicleType} from '../types/byahero';
-import {ByaheroLogoMark, GoogleGVectorIcon} from './VectorGraphics';
+import {ByaheroLogoMark, ByaheroWordmarkVector, GoogleGVectorIcon} from './VectorGraphics';
 
 interface StoredAccount {
   id: string;
@@ -179,9 +179,7 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
           <div className="flex items-center gap-3">
             <ByaheroLogoMark className="w-11 h-11 shrink-0" />
             <div>
-              <h1 className="text-xl font-extrabold tracking-[0.1em] text-[#101713] leading-none">
-                BYAHERO
-              </h1>
+              <ByaheroWordmarkVector lightSurface={true} className="h-6 w-auto" />
               <p className="text-xs font-medium text-[#0F522B] mt-1">by HDDEV</p>
             </div>
           </div>

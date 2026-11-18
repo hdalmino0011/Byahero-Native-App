@@ -32,7 +32,10 @@ import {
   calculateHaversineKm,
   isTodaySaturday,
 } from './utils/pricing';
-import {reverseGeocodePoint} from './utils/reverseGeocode';
+import {
+  detectApproximateBrowserLocation,
+  reverseGeocodePoint,
+} from './utils/reverseGeocode';
 import {areLocationsSame} from './utils/locationMatch';
 import {
   publishRideToSupabase,
@@ -49,7 +52,7 @@ import {ExploreNearbyPanel} from './components/ExploreNearbyPanel';
 import {OrderHistoryPanel} from './components/OrderHistoryPanel';
 import {RiderDashboardPanel} from './components/RiderDashboardPanel';
 import {SettingsPanel} from './components/SettingsPanel';
-import {ByaheroLogoMark} from './components/VectorGraphics';
+import {ByaheroLogoMark, ByaheroWordmarkVector} from './components/VectorGraphics';
 
 const MAPS_API_KEY = (import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string) || '';
 
@@ -409,13 +412,9 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!('geolocation' in navigator)) return;
+    let resolvedViaGps = false;
 
-    const onPosition = (pos: GeolocationPosition) => {
-      const next: LatLngPoint = {
-        lat: pos.coords.latitude,
-        lng: pos.coords.longitude,
-      };
+    const applyCoordinates = (next: LatLngPoint) => {
       setUserLocation(next);
       void reverseGeocodePoint(next).then((resolved) => {
         const candidate: LocationStop = {
@@ -437,14 +436,36 @@ export default function App() {
       });
     };
 
-    navigator.geolocation.getCurrentPosition(onPosition, () => {}, {
+    const onPosition = (pos: GeolocationPosition) => {
+      resolvedViaGps = true;
+      applyCoordinates({
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude,
+      });
+    };
+
+    const fallbackToApproximate = () => {
+      if (resolvedViaGps) return;
+      void detectApproximateBrowserLocation().then((approx) => {
+        if (approx && !resolvedViaGps) {
+          applyCoordinates(approx);
+        }
+      });
+    };
+
+    if (!('geolocation' in navigator)) {
+      fallbackToApproximate();
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(onPosition, fallbackToApproximate, {
       enableHighAccuracy: true,
-      timeout: 8000,
+      timeout: 6000,
     });
 
     const watchId = navigator.geolocation.watchPosition(onPosition, () => {}, {
       enableHighAccuracy: true,
-      maximumAge: 10000,
+      maximumAge: 8000,
     });
 
     return () => navigator.geolocation.clearWatch(watchId);
@@ -956,9 +977,7 @@ export default function App() {
       >
         <div className="flex items-center gap-2.5 min-w-0">
           <ByaheroLogoMark className="w-7 h-7 shrink-0" />
-          <span className="text-sm font-extrabold tracking-wider text-[#101713] whitespace-nowrap">
-            BYAHERO
-          </span>
+          <ByaheroWordmarkVector lightSurface={true} className="h-5 w-auto" />
         </div>
 
         <button
@@ -990,9 +1009,7 @@ export default function App() {
           <div className="flex items-center gap-3">
             <ByaheroLogoMark className="w-9 h-9" />
             <div>
-              <div className="text-base font-extrabold tracking-[0.1em] text-[#101713] leading-none">
-                BYAHERO
-              </div>
+              <ByaheroWordmarkVector lightSurface={true} className="h-6 w-auto" />
               <div className="text-[11px] text-[#0F522B] font-semibold mt-1">
                 by HDDEV · Travel & Explore
               </div>

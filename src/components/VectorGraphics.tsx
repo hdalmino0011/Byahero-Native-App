@@ -22,6 +22,115 @@ export const ByaheroLogoMark: React.FC<IconProps> = ({className = 'w-8 h-8'}) =>
   </svg>
 );
 
+export const ByaheroWordmarkVector: React.FC<IconProps> = ({
+  className = 'h-6 w-auto',
+  lightSurface = true,
+}) => {
+  const primaryStroke = lightSurface ? '#101713' : '#FFFFFF';
+  const accentStroke = lightSurface ? '#0F522B' : '#34D399';
+  const sparkFill = lightSurface ? '#10B981' : '#34D399';
+
+  return (
+    <svg
+      viewBox="0 0 284 44"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      role="img"
+      aria-label="BYAHERO"
+    >
+      {/* Letter B */}
+      <path
+        d="M10 6V34M10 6H22.5C27.2 6 30.2 8.8 30.2 13C30.2 17.2 27.2 20 22.5 20H10M22.5 20H24C28.8 20 31.8 22.8 31.8 27C31.8 31.2 28.8 34 24 34H10"
+        stroke={primaryStroke}
+        strokeWidth="6.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      {/* Letter Y */}
+      <path
+        d="M45 6L56.5 20.5L68 6M56.5 20.5V34"
+        stroke={primaryStroke}
+        strokeWidth="6.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      {/* Letter A chevron */}
+      <path
+        d="M80 34L93 6L106 34"
+        stroke={primaryStroke}
+        strokeWidth="6.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      {/* Letter A speed-cut emerald crossbar */}
+      <path
+        d="M85 24.5H101"
+        stroke={accentStroke}
+        strokeWidth="5.6"
+        strokeLinecap="round"
+      />
+      {/* Letter H */}
+      <path
+        d="M120 6V34M142 6V34M120 20H142"
+        stroke={primaryStroke}
+        strokeWidth="6.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      {/* Letter E outer frame */}
+      <path
+        d="M179 6H158V34H179"
+        stroke={primaryStroke}
+        strokeWidth="6.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      {/* Letter E speed-cut middle bar */}
+      <path
+        d="M158 20H174.5"
+        stroke={accentStroke}
+        strokeWidth="5.8"
+        strokeLinecap="round"
+      />
+      {/* Letter R */}
+      <path
+        d="M194 34V6H207C211.8 6 215 9.1 215 13.5C215 17.9 211.8 21 207 21H194M204.5 21L215.5 34"
+        stroke={primaryStroke}
+        strokeWidth="6.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      {/* Letter O */}
+      <path
+        d="M242 6H244.5C251.4 6 257 11.6 257 18.5V21.5C257 28.4 251.4 34 244.5 34H241.5C234.6 34 229 28.4 229 21.5V18.5C229 11.6 234.6 6 241.5 6H242Z"
+        stroke={primaryStroke}
+        strokeWidth="6.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      {/* Dynamic speed-line vector underline & apex accent */}
+      <path
+        d="M10 41H112"
+        stroke={accentStroke}
+        strokeWidth="2.8"
+        strokeLinecap="round"
+      />
+      <path
+        d="M122 41H152"
+        stroke={sparkFill}
+        strokeWidth="2.8"
+        strokeLinecap="round"
+      />
+      <circle cx="271" cy="9" r="4.2" fill={sparkFill} />
+      <path
+        d="M266 20L276 14L272 24Z"
+        fill={accentStroke}
+      />
+    </svg>
+  );
+};
+
 export const ByaheroMotorcycleVector: React.FC<IconProps> = ({
   className = 'w-44 h-24',
   lightSurface = false,

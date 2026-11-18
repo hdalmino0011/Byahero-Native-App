@@ -260,14 +260,13 @@ fun AuthGateScreen(onAuthenticated: (UserProfile) -> Unit) {
                                     .size(44.dp)
                                     .clip(RoundedCornerShape(12.dp))
                             )
-                            Column {
-                                Text(
-                                    text = "BYAHERO",
-                                    fontFamily = PoppinsFontFamily,
-                                    fontSize = 20.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    letterSpacing = 2.sp,
-                                    color = ByaheroBlack
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Image(
+                                    painter = painterResource(id = R.drawable.ic_byahero_wordmark_dark),
+                                    contentDescription = "BYAHERO",
+                                    modifier = Modifier
+                                        .width(138.dp)
+                                        .height(22.dp)
                                 )
                                 Text(
                                     text = "by HDDEV",

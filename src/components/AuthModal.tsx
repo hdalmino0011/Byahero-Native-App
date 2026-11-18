@@ -1,7 +1,7 @@
 import React, {useState} from 'react';
 import {ShieldCheck, UserCheck, Bike, Car, X} from 'lucide-react';
 import {UserProfile, UserRole, VehicleType} from '../types/byahero';
-import {GoogleGVectorIcon, ByaheroLogoMark} from './VectorGraphics';
+import {GoogleGVectorIcon, ByaheroLogoMark, ByaheroWordmarkVector} from './VectorGraphics';
 import {isSupabaseConfigured, signInWithGoogleSupabase} from '../lib/supabase';
 
 interface AuthModalProps {
@@ -68,10 +68,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           <div className="flex items-center gap-3">
             <ByaheroLogoMark className="w-9 h-9" />
             <div>
-              <h2 id="auth-modal-title" className="text-base font-bold tracking-tight text-[#101713]">
-                BYAHERO Account & Role
-              </h2>
-              <p className="text-xs text-[#55625A]">
+              <div id="auth-modal-title" className="flex items-center gap-2">
+                <ByaheroWordmarkVector lightSurface={true} className="h-5 w-auto" />
+                <span className="text-sm font-bold tracking-tight text-[#101713]">
+                  Account & Role
+                </span>
+              </div>
+              <p className="text-xs text-[#55625A] mt-0.5">
                 Seamless Passenger & Rider Sync
               </p>
             </div>

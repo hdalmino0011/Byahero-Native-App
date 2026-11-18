@@ -11,6 +11,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -55,6 +56,7 @@ import com.hddev.byahero.ui.theme.ByaheroBlack
 import com.hddev.byahero.ui.theme.ByaheroBorder
 import com.hddev.byahero.ui.theme.ByaheroDarkGreen
 import com.hddev.byahero.ui.theme.ByaheroGlassWhite
+import com.hddev.byahero.ui.theme.ByaheroMuted
 import com.hddev.byahero.ui.theme.ByaheroWhite
 import com.hddev.byahero.ui.theme.PoppinsFontFamily
 import kotlinx.coroutines.Dispatchers
@@ -75,7 +77,7 @@ import kotlin.math.sin
 import kotlin.math.sinh
 
 private object MapTileCache {
-    private val cache = LruCache<String, ImageBitmap>(180)
+    private val cache = LruCache<String, ImageBitmap>(220)
     private val inFlight = ConcurrentHashMap<String, Boolean>()
 
     fun get(key: String): ImageBitmap? = cache.get(key)
@@ -93,7 +95,10 @@ private object MapTileCache {
 }
 
 private suspend fun fetchTileBitmap(z: Int, x: Int, y: Int): ImageBitmap? = withContext(Dispatchers.IO) {
+    val shard = (x + y) and 3
     val urls = listOf(
+        "https://mt$shard.google.com/vt/lyrs=m&x=$x&y=$y&z=$z&hl=en&scale=2",
+        "https://mt1.google.com/vt/lyrs=m&x=$x&y=$y&z=$z&hl=en&scale=2",
         "https://tile.openstreetmap.org/$z/$x/$y.png",
         "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/$z/$y/$x"
     )
@@ -104,8 +109,8 @@ private suspend fun fetchTileBitmap(z: Int, x: Int, y: Int): ImageBitmap? = with
                 requestMethod = "GET"
                 connectTimeout = 5000
                 readTimeout = 5000
-                setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) BYAHERO-Navigation/1.0")
-                setRequestProperty("Accept", "image/png,image/*")
+                setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/126.0.0.0 Mobile Safari/537.36")
+                setRequestProperty("Accept", "image/webp,image/apng,image/png,image/*,*/*;q=0.8")
             }
             if (conn.responseCode == 200) {
                 val decoded = conn.inputStream.use { BitmapFactory.decodeStream(it) }
@@ -153,10 +158,10 @@ fun NativeInteractiveMap(
 ) {
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
-    val tilePx = with(density) { 240.dp.toPx().toDouble() }
+    val tilePx = with(density) { 256.dp.toPx().toDouble() }
 
     var viewSize by remember { mutableStateOf(IntSize(1, 1)) }
-    var zoom by remember { mutableIntStateOf(15) }
+    var zoom by remember { mutableIntStateOf(16) }
     var centerLat by remember { mutableDoubleStateOf(userLocation.latitude) }
     var centerLng by remember { mutableDoubleStateOf(userLocation.longitude) }
     var tileRevision by remember { mutableIntStateOf(0) }
@@ -165,7 +170,7 @@ fun NativeInteractiveMap(
         if (recenterSeq > 0) {
             centerLat = userLocation.latitude
             centerLng = userLocation.longitude
-            zoom = 15
+            zoom = 16
         }
     }
 
@@ -173,15 +178,15 @@ fun NativeInteractiveMap(
         if (focusSeq > 0 && focusTarget != null) {
             centerLat = focusTarget.latitude
             centerLng = focusTarget.longitude
-            zoom = 15
+            zoom = 16
         }
     }
 
-    LaunchedEffect(userLocation, destinationLocation) {
+    LaunchedEffect(userLocation.latitude, userLocation.longitude, destinationLocation) {
         if (destinationLocation != null) {
             centerLat = (pickupLocation.latitude + destinationLocation.latitude) / 2.0
             centerLng = (pickupLocation.longitude + destinationLocation.longitude) / 2.0
-            zoom = 13
+            zoom = 14
         } else {
             centerLat = userLocation.latitude
             centerLng = userLocation.longitude
@@ -192,7 +197,7 @@ fun NativeInteractiveMap(
         if (discoveredSpots.isNotEmpty() && destinationLocation == null) {
             centerLat = discoveredSpots.first().lat
             centerLng = discoveredSpots.first().lng
-            zoom = 14
+            zoom = 15
         }
     }
 
@@ -213,7 +218,7 @@ fun NativeInteractiveMap(
         for (ty in minTy..maxTy) {
             for (txRaw in minTx..maxTx) {
                 val tx = ((txRaw % maxTileIdx) + maxTileIdx) % maxTileIdx
-                val key = "osm_v2_$zoom/$tx/$ty"
+                val key = "gmap_2026_$zoom/$tx/$ty"
                 if (MapTileCache.get(key) == null && MapTileCache.tryMarkInFlight(key)) {
                     scope.launch {
                         val bmp = fetchTileBitmap(zoom, tx, ty)
@@ -240,7 +245,7 @@ fun NativeInteractiveMap(
 
     Box(
         modifier = modifier
-            .background(Color(0xFFE7EFEA))
+            .background(Color(0xFFE8EEF1))
             .onSizeChanged { viewSize = it }
             .pointerInput(zoom, scale, halfW, halfH) {
                 detectDragGestures { change, dragAmount ->
@@ -284,7 +289,7 @@ fun NativeInteractiveMap(
             for (ty in minTy..maxTy) {
                 for (txRaw in minTx..maxTx) {
                     val tx = ((txRaw % maxTileIdx) + maxTileIdx) % maxTileIdx
-                    val key = "osm_v2_$zoom/$tx/$ty"
+                    val key = "gmap_2026_$zoom/$tx/$ty"
                     val bmp = MapTileCache.get(key) ?: continue
                     val left = (txRaw * tilePx - centerWorldX + halfW).roundToInt()
                     val top = (ty * tilePx - centerWorldY + halfH).roundToInt()
@@ -320,8 +325,8 @@ fun NativeInteractiveMap(
 
             val gpsPos = latLngToScreen(userLocation)
             drawCircle(
-                color = ByaheroDarkGreen.copy(alpha = 0.18f),
-                radius = 40f,
+                color = ByaheroDarkGreen.copy(alpha = 0.20f),
+                radius = 44f,
                 center = gpsPos
             )
             drawCircle(
@@ -421,6 +426,34 @@ fun NativeInteractiveMap(
             }
         }
 
+        Surface(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(start = 10.dp, bottom = 8.dp),
+            shape = RoundedCornerShape(6.dp),
+            color = ByaheroWhite.copy(alpha = 0.88f)
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = "Google",
+                    fontFamily = PoppinsFontFamily,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF3C4043)
+                )
+                Text(
+                    text = "Map data ©2026 Google",
+                    fontFamily = PoppinsFontFamily,
+                    fontSize = 9.sp,
+                    color = ByaheroMuted
+                )
+            }
+        }
+
         Column(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
@@ -428,7 +461,7 @@ fun NativeInteractiveMap(
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Surface(
-                onClick = { if (zoom < 18) zoom++ },
+                onClick = { if (zoom < 19) zoom++ },
                 shape = CircleShape,
                 color = ByaheroGlassWhite,
                 border = BorderStroke(1.dp, ByaheroBorder),

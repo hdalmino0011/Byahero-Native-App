@@ -1,8 +1,14 @@
 package com.hddev.byahero.data
 
+import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
+import android.content.pm.PackageManager
 import android.location.Geocoder
+import android.location.Location
+import android.location.LocationManager
 import android.os.Build
+import androidx.core.content.ContextCompat
 import com.google.android.gms.maps.model.LatLng
 import com.google.android.libraries.places.api.Places
 import com.google.android.libraries.places.api.model.CircularBounds
@@ -27,11 +33,114 @@ object PlaceSearchHelper {
         get() = BuildConfig.MAPS_API_KEY.isNotBlank() &&
             !BuildConfig.MAPS_API_KEY.contains("Placeholder", ignoreCase = true)
 
+    @SuppressLint("MissingPermission")
+    fun getBestLastKnownDeviceLocation(context: Context): LatLng? {
+        val hasFine = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+        val hasCoarse = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!hasFine && !hasCoarse) return null
+
+        return try {
+            val lm = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return null
+            val providers = listOf(
+                LocationManager.GPS_PROVIDER,
+                LocationManager.NETWORK_PROVIDER,
+                LocationManager.PASSIVE_PROVIDER
+            )
+            var bestLocation: Location? = null
+            for (provider in providers) {
+                val loc = runCatching { lm.getLastKnownLocation(provider) }.getOrNull() ?: continue
+                if (bestLocation == null || loc.time > bestLocation.time || loc.accuracy < bestLocation.accuracy) {
+                    bestLocation = loc
+                }
+            }
+            bestLocation?.let { LatLng(it.latitude, it.longitude) }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    suspend fun detectApproximateNetworkLocation(): LatLng? = withContext(Dispatchers.IO) {
+        val endpoints = listOf(
+            "https://ipwho.is/",
+            "https://ipapi.co/json/"
+        )
+        for (urlStr in endpoints) {
+            var conn: HttpURLConnection? = null
+            try {
+                conn = (URL(urlStr).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 4000
+                    readTimeout = 4000
+                    setRequestProperty("User-Agent", "BYAHERO-Android/2026.1")
+                }
+                if (conn.responseCode == 200) {
+                    val body = conn.inputStream.bufferedReader().readText()
+                    val obj = JSONObject(body)
+                    val lat = obj.optDouble("latitude", Double.NaN)
+                    val lng = obj.optDouble("longitude", Double.NaN)
+                    if (!lat.isNaN() && !lng.isNaN() && lat != 0.0 && lng != 0.0) {
+                        return@withContext LatLng(lat, lng)
+                    }
+                }
+            } catch (_: Exception) {
+            } finally {
+                conn?.disconnect()
+            }
+        }
+        null
+    }
+
     suspend fun reverseGeocode(
         context: Context,
         point: LatLng
     ): Pair<String, String> = withContext(Dispatchers.IO) {
-        // 1. Try OpenStreetMap Nominatim reverse geocoding (gives specific venue/building/street names cleanly)
+        // 1. Photon Komoot 2026 high-precision POI & street reverse geocoding
+        try {
+            val photonUrl =
+                "https://photon.komoot.io/reverse?lat=${point.latitude}&lon=${point.longitude}&lang=en"
+            val conn = (URL(photonUrl).openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 4000
+                readTimeout = 4000
+                setRequestProperty("User-Agent", "BYAHERO-Android/2026.1")
+            }
+            if (conn.responseCode == 200) {
+                val body = conn.inputStream.bufferedReader().readText()
+                val features = JSONObject(body).optJSONArray("features")
+                if (features != null && features.length() > 0) {
+                    val props = features.getJSONObject(0).optJSONObject("properties")
+                    if (props != null) {
+                        val name = props.optString("name").trim()
+                        val street = props.optString("street").trim()
+                        val district = props.optString("district").ifBlank { props.optString("locality") }.trim()
+                        val city = props.optString("city").ifBlank { props.optString("county") }.trim()
+                        val primary = name.ifBlank { street }.ifBlank { district }
+                        val secondary = district.ifBlank { city }
+                        val label = when {
+                            primary.isNotBlank() && secondary.isNotBlank() && !primary.equals(secondary, ignoreCase = true) ->
+                                "$primary, $secondary"
+                            primary.isNotBlank() -> primary
+                            else -> city
+                        }
+                        if (label.isNotBlank()) {
+                            val fullParts = listOf(name, street, district, city).filter { it.isNotBlank() }.distinct()
+                            conn.disconnect()
+                            return@withContext label to fullParts.joinToString(", ").ifBlank { label }
+                        }
+                    }
+                }
+            }
+            conn.disconnect()
+        } catch (_: Exception) {
+        }
+
+        // 2. OpenStreetMap Nominatim 2026 reverse geocoding
         try {
             val endpoint =
                 "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${point.latitude}&lon=${point.longitude}&zoom=18&addressdetails=1"
@@ -39,7 +148,7 @@ object PlaceSearchHelper {
                 requestMethod = "GET"
                 connectTimeout = 4500
                 readTimeout = 4500
-                setRequestProperty("User-Agent", "BYAHERO-Android/1.0")
+                setRequestProperty("User-Agent", "BYAHERO-Android/2026.1")
             }
             if (conn.responseCode == 200) {
                 val body = conn.inputStream.bufferedReader().readText()
@@ -74,10 +183,9 @@ object PlaceSearchHelper {
             }
             conn.disconnect()
         } catch (_: Exception) {
-            // Fall through to Android Geocoder
         }
 
-        // 2. Fallback to Android system Geocoder
+        // 3. Android system Geocoder
         try {
             if (Geocoder.isPresent()) {
                 val geocoder = Geocoder(context, Locale.getDefault())
@@ -107,17 +215,16 @@ object PlaceSearchHelper {
                     val feature = first.featureName?.takeIf { it.isNotBlank() && it.length > 2 && !it.all(Char::isDigit) }
                     val road = first.thoroughfare?.takeIf { it.isNotBlank() }
                     val area = first.subLocality?.takeIf { it.isNotBlank() } ?: first.locality?.takeIf { it.isNotBlank() }
-                    val main = feature ?: road ?: area ?: "Selected Location"
+                    val main = feature ?: road ?: area ?: "Current Location"
                     val label = if (area != null && !main.equals(area, ignoreCase = true)) "$main, $area" else main
                     val full = first.getAddressLine(0) ?: label
                     return@withContext label to full
                 }
             }
         } catch (_: Exception) {
-            // Ignore geocoder failure
         }
 
-        "Selected Location" to String.format("%.5f, %.5f", point.latitude, point.longitude)
+        "Current Location" to String.format("%.5f, %.5f", point.latitude, point.longitude)
     }
 
     suspend fun searchPlaces(
@@ -130,7 +237,7 @@ object PlaceSearchHelper {
             val googleResults = searchViaPlacesSdk(context, query, category, center)
             if (googleResults.isNotEmpty()) return googleResults
         }
-        return searchViaOsmAndNominatim(query, category, center)
+        return searchViaMultiProvider2026(query, category, center)
     }
 
     private suspend fun searchViaPlacesSdk(
@@ -180,28 +287,28 @@ object PlaceSearchHelper {
             }
     }
 
-    private suspend fun searchViaOsmAndNominatim(
+    private suspend fun searchViaMultiProvider2026(
         query: String,
         category: String,
         center: LatLng
     ): List<NearbySpot> = withContext(Dispatchers.IO) {
         val aggregated = mutableListOf<NearbySpot>()
 
-        // 1. Overpass API for accurate local fast food & resort/beach POIs
+        // 1. Overpass 2026 POI discovery for Fast Food & Resorts/Beaches
         if (category == "fast_food" || category == "resort_beach") {
             try {
-                val radiusMeters = if (category == "resort_beach") 35000 else 8000
+                val radiusMeters = if (category == "resort_beach") 35000 else 10000
                 val overpassFilter = if (category == "fast_food") {
-                    """[out:json][timeout:10];(node["amenity"="fast_food"](around:$radiusMeters,${center.latitude},${center.longitude});way["amenity"="fast_food"](around:$radiusMeters,${center.latitude},${center.longitude});node["name"~"Jollibee|McDonald|KFC|Chowking|Burger King",i](around:$radiusMeters,${center.latitude},${center.longitude}););out center 15;"""
+                    """[out:json][timeout:10];(node["amenity"="fast_food"](around:$radiusMeters,${center.latitude},${center.longitude});way["amenity"="fast_food"](around:$radiusMeters,${center.latitude},${center.longitude});node["name"~"Jollibee|McDonald|KFC|Chowking|Burger King|Mang Inasal|Greenwich",i](around:$radiusMeters,${center.latitude},${center.longitude}););out center 18;"""
                 } else {
-                    """[out:json][timeout:10];(node["tourism"~"resort|hotel"](around:$radiusMeters,${center.latitude},${center.longitude});way["tourism"="resort"](around:$radiusMeters,${center.latitude},${center.longitude});node["natural"="beach"](around:$radiusMeters,${center.latitude},${center.longitude});way["natural"="beach"](around:$radiusMeters,${center.latitude},${center.longitude}););out center 15;"""
+                    """[out:json][timeout:10];(node["tourism"~"resort|hotel"](around:$radiusMeters,${center.latitude},${center.longitude});way["tourism"="resort"](around:$radiusMeters,${center.latitude},${center.longitude});node["natural"="beach"](around:$radiusMeters,${center.latitude},${center.longitude});way["natural"="beach"](around:$radiusMeters,${center.latitude},${center.longitude}););out center 18;"""
                 }
                 val conn = (URL("https://overpass-api.de/api/interpreter").openConnection() as HttpURLConnection).apply {
                     requestMethod = "POST"
                     doOutput = true
                     connectTimeout = 5000
                     readTimeout = 6000
-                    setRequestProperty("User-Agent", "BYAHERO-Android/1.0")
+                    setRequestProperty("User-Agent", "BYAHERO-Android/2026.1")
                     setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
                 }
                 conn.outputStream.use {
@@ -237,18 +344,76 @@ object PlaceSearchHelper {
                 }
                 conn.disconnect()
             } catch (_: Exception) {
-                // Fall through to Nominatim
+            }
+        }
+
+        // 2. Photon Komoot 2026 location-biased search (fast, typo-tolerant POI & address search)
+        val photonQueries = when (category) {
+            "fast_food" -> if (aggregated.isEmpty()) listOf("Jollibee", "McDonald's") else emptyList()
+            "resort_beach" -> if (aggregated.isEmpty()) listOf("beach resort") else emptyList()
+            else -> listOf(query)
+        }
+        for (q in photonQueries) {
+            if (q.isBlank()) continue
+            try {
+                val encoded = URLEncoder.encode(q, "UTF-8")
+                val photonEndpoint =
+                    "https://photon.komoot.io/api/?q=$encoded&lat=${center.latitude}&lon=${center.longitude}&limit=10&lang=en"
+                val conn = (URL(photonEndpoint).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 4500
+                    readTimeout = 4500
+                    setRequestProperty("User-Agent", "BYAHERO-Android/2026.1")
+                }
+                if (conn.responseCode == 200) {
+                    val body = conn.inputStream.bufferedReader().readText()
+                    val features = JSONObject(body).optJSONArray("features") ?: JSONArray()
+                    for (i in 0 until features.length()) {
+                        val feat = features.getJSONObject(i)
+                        val geom = feat.optJSONObject("geometry") ?: continue
+                        val coords = geom.optJSONArray("coordinates") ?: continue
+                        if (coords.length() < 2) continue
+                        val lng = coords.optDouble(0, Double.NaN)
+                        val lat = coords.optDouble(1, Double.NaN)
+                        if (lat.isNaN() || lng.isNaN()) continue
+                        val props = feat.optJSONObject("properties") ?: continue
+                        val name = props.optString("name").ifBlank {
+                            props.optString("street").ifBlank { props.optString("district", q) }
+                        }
+                        val addrParts = listOf(
+                            props.optString("street"),
+                            props.optString("district"),
+                            props.optString("city"),
+                            props.optString("state")
+                        ).filter { it.isNotBlank() }.distinct()
+                        val dist = ByaheroNativeEngine.calculateHaversineKm(center.latitude, center.longitude, lat, lng)
+                        aggregated.add(
+                            NearbySpot(
+                                id = "ph_${props.optLong("osm_id", i.toLong())}_$i",
+                                name = name,
+                                address = addrParts.joinToString(", ").ifBlank { name },
+                                lat = lat,
+                                lng = lng,
+                                rating = null,
+                                category = category,
+                                distanceKm = dist
+                            )
+                        )
+                    }
+                }
+                conn.disconnect()
+            } catch (_: Exception) {
             }
         }
 
         if (aggregated.isNotEmpty()) {
             return@withContext aggregated
-                .distinctBy { it.name + "_" + String.format("%.3f", it.lat) }
+                .distinctBy { it.name.lowercase() + "_" + String.format("%.3f", it.lat) }
                 .sortedBy { it.distanceKm }
                 .take(12)
         }
 
-        // 2. Nominatim place search (handles both free-text queries and category fallback)
+        // 3. Nominatim place search fallback
         val searchQueries = when (category) {
             "fast_food" -> listOf("Jollibee", "McDonald's", "KFC")
             "resort_beach" -> listOf("resort", "beach")
@@ -263,12 +428,12 @@ object PlaceSearchHelper {
             try {
                 val encoded = URLEncoder.encode(q, "UTF-8")
                 val endpoint =
-                    "https://nominatim.openstreetmap.org/search?format=jsonv2&q=$encoded&limit=6&viewbox=$viewbox&bounded=0"
+                    "https://nominatim.openstreetmap.org/search?format=jsonv2&q=$encoded&limit=8&viewbox=$viewbox&bounded=0"
                 val conn = (URL(endpoint).openConnection() as HttpURLConnection).apply {
                     requestMethod = "GET"
                     connectTimeout = 5000
                     readTimeout = 5000
-                    setRequestProperty("User-Agent", "BYAHERO-Android/1.0")
+                    setRequestProperty("User-Agent", "BYAHERO-Android/2026.1")
                 }
                 if (conn.responseCode == 200) {
                     val body = conn.inputStream.bufferedReader().readText()
@@ -303,12 +468,11 @@ object PlaceSearchHelper {
                 }
                 conn.disconnect()
             } catch (_: Exception) {
-                // Ignore query error and continue
             }
         }
 
-        aggregated.distinctBy { it.name + "_" + String.format("%.3f", it.lat) }
+        aggregated.distinctBy { it.name.lowercase() + "_" + String.format("%.3f", it.lat) }
             .sortedBy { it.distanceKm }
-            .take(10)
+            .take(12)
     }
 }

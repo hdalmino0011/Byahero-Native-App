@@ -74,7 +74,9 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import android.os.Looper
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -96,8 +98,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
+import com.google.android.gms.maps.MapsInitializer
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
 import com.google.maps.android.compose.GoogleMap
@@ -178,13 +184,25 @@ fun MainScreen(
     var settingsSubTab by remember { mutableStateOf(SettingsSubTab.ACCOUNT) }
     var fullMapExpanded by remember { mutableStateOf(false) }
 
-    var userLocation by remember { mutableStateOf(LatLng(14.5995, 120.9842)) }
+    var userLocation by remember {
+        mutableStateOf(
+            PlaceSearchHelper.getBestLastKnownDeviceLocation(context)
+                ?: LatLng(10.3157, 123.8854)
+        )
+    }
+    var hasGpsFix by remember {
+        mutableStateOf(PlaceSearchHelper.getBestLastKnownDeviceLocation(context) != null)
+    }
     var hasLocationPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(
                 context,
                 Manifest.permission.ACCESS_FINE_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED
+            ) == PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                ) == PackageManager.PERMISSION_GRANTED
         )
     }
 
@@ -197,6 +215,9 @@ fun MainScreen(
     }
 
     LaunchedEffect(Unit) {
+        runCatching {
+            MapsInitializer.initialize(context, MapsInitializer.Renderer.LATEST, null)
+        }
         if (!hasLocationPermission) {
             permissionLauncher.launch(
                 arrayOf(
@@ -376,44 +397,115 @@ fun MainScreen(
     var inlineStopResults by remember { mutableStateOf<List<NearbySpot>>(emptyList()) }
     var isSearchingStop by remember { mutableStateOf(false) }
 
+    fun applyLiveCoordinates(live: LatLng, forceAsPickup: Boolean) {
+        val movedSignificantly = ByaheroNativeEngine.calculateHaversineKm(
+            userLocation.latitude,
+            userLocation.longitude,
+            live.latitude,
+            live.longitude
+        ) > 0.015
+        val firstFix = !hasGpsFix
+        hasGpsFix = true
+        userLocation = live
+        if (forceAsPickup || (!userEditedPickup && (firstFix || movedSignificantly || pickupLabel.startsWith("Locating")))) {
+            val prevLatLng = pickupLatLng
+            val prevLabel = pickupLabel
+            pickupLatLng = live
+            recenterSeq++
+            scope.launch {
+                val (resolvedName, _) = PlaceSearchHelper.reverseGeocode(context, live)
+                if (forceAsPickup) {
+                    if (!trySetPickup(live, resolvedName)) {
+                        pickupLatLng = prevLatLng
+                        pickupLabel = prevLabel
+                    }
+                } else if (!userEditedPickup) {
+                    pickupLabel = resolvedName
+                }
+            }
+        }
+    }
+
+    fun requestFreshGpsPickup() {
+        if (!hasLocationPermission) {
+            permissionLauncher.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                )
+            )
+            return
+        }
+        pickupLabel = "Locating current address..."
+        val fused = LocationServices.getFusedLocationProviderClient(context)
+        fused.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
+            .addOnSuccessListener { fresh ->
+                val target = fresh?.let { LatLng(it.latitude, it.longitude) }
+                    ?: PlaceSearchHelper.getBestLastKnownDeviceLocation(context)
+                    ?: userLocation
+                applyLiveCoordinates(target, forceAsPickup = true)
+            }
+            .addOnFailureListener {
+                val target = PlaceSearchHelper.getBestLastKnownDeviceLocation(context) ?: userLocation
+                applyLiveCoordinates(target, forceAsPickup = true)
+            }
+    }
+
+    DisposableEffect(hasLocationPermission) {
+        if (!hasLocationPermission) {
+            return@DisposableEffect onDispose { }
+        }
+        val fused = LocationServices.getFusedLocationProviderClient(context)
+        val callback = object : LocationCallback() {
+            override fun onLocationResult(result: LocationResult) {
+                val loc = result.lastLocation ?: return
+                applyLiveCoordinates(LatLng(loc.latitude, loc.longitude), forceAsPickup = false)
+            }
+        }
+        runCatching {
+            val req = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 4000L)
+                .setMinUpdateIntervalMillis(2000L)
+                .build()
+            fused.requestLocationUpdates(req, callback, Looper.getMainLooper())
+        }
+        onDispose {
+            runCatching { fused.removeLocationUpdates(callback) }
+        }
+    }
+
     LaunchedEffect(hasLocationPermission) {
         if (hasLocationPermission) {
+            PlaceSearchHelper.getBestLastKnownDeviceLocation(context)?.let { known ->
+                applyLiveCoordinates(known, forceAsPickup = false)
+            }
             val fused = LocationServices.getFusedLocationProviderClient(context)
             fused.lastLocation.addOnSuccessListener { loc ->
                 if (loc != null) {
-                    val live = LatLng(loc.latitude, loc.longitude)
-                    userLocation = live
-                    if (!userEditedPickup) {
-                        pickupLatLng = live
-                        recenterSeq++
-                        scope.launch {
-                            val (resolvedName, _) = PlaceSearchHelper.reverseGeocode(context, live)
-                            if (!userEditedPickup) {
-                                pickupLabel = resolvedName
-                            }
-                        }
+                    applyLiveCoordinates(LatLng(loc.latitude, loc.longitude), forceAsPickup = false)
+                }
+            }
+            fused.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
+                .addOnSuccessListener { fresh ->
+                    if (fresh != null) {
+                        applyLiveCoordinates(LatLng(fresh.latitude, fresh.longitude), forceAsPickup = false)
                     }
-                } else {
-                    fused.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
-                        .addOnSuccessListener { fresh ->
-                            if (fresh != null) {
-                                val live = LatLng(fresh.latitude, fresh.longitude)
-                                userLocation = live
-                                if (!userEditedPickup) {
-                                    pickupLatLng = live
-                                    recenterSeq++
-                                    scope.launch {
-                                        val (resolvedName, _) = PlaceSearchHelper.reverseGeocode(context, live)
-                                        if (!userEditedPickup) {
-                                            pickupLabel = resolvedName
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                }
+            delay(1800)
+            if (!hasGpsFix) {
+                val approx = PlaceSearchHelper.detectApproximateNetworkLocation()
+                if (approx != null && !hasGpsFix) {
+                    applyLiveCoordinates(approx, forceAsPickup = false)
                 }
             }
         } else {
+            val approx = PlaceSearchHelper.detectApproximateNetworkLocation()
+            if (approx != null && !hasGpsFix) {
+                userLocation = approx
+                if (!userEditedPickup) {
+                    pickupLatLng = approx
+                    recenterSeq++
+                }
+            }
             val (fallbackName, _) = PlaceSearchHelper.reverseGeocode(context, userLocation)
             if (!userEditedPickup && pickupLabel.startsWith("Locating")) {
                 pickupLabel = fallbackName
@@ -663,13 +755,12 @@ fun MainScreen(
                                 .size(28.dp)
                                 .clip(RoundedCornerShape(8.dp))
                         )
-                        Text(
-                            text = "BYAHERO",
-                            fontFamily = PoppinsFontFamily,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            letterSpacing = 1.sp,
-                            color = ByaheroBlack
+                        Image(
+                            painter = painterResource(id = R.drawable.ic_byahero_wordmark_dark),
+                            contentDescription = "BYAHERO",
+                            modifier = Modifier
+                                .width(108.dp)
+                                .height(18.dp)
                         )
                     }
 
@@ -1082,36 +1173,7 @@ fun MainScreen(
                         )
                         Surface(
                             onClick = {
-                                if (!hasLocationPermission) {
-                                    permissionLauncher.launch(
-                                        arrayOf(
-                                            Manifest.permission.ACCESS_FINE_LOCATION,
-                                            Manifest.permission.ACCESS_COARSE_LOCATION
-                                        )
-                                    )
-                                } else {
-                                    val fused = LocationServices.getFusedLocationProviderClient(context)
-                                    fused.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
-                                        .addOnSuccessListener { loc ->
-                                            if (loc != null) {
-                                                val next = LatLng(loc.latitude, loc.longitude)
-                                                userLocation = next
-                                                cameraState.position = CameraPosition.fromLatLngZoom(next, 15f)
-                                                recenterSeq++
-                                                val prevLatLng = pickupLatLng
-                                                val prevLabel = pickupLabel
-                                                pickupLatLng = next
-                                                pickupLabel = "Locating current address..."
-                                                scope.launch {
-                                                    val (name, _) = PlaceSearchHelper.reverseGeocode(context, next)
-                                                    if (!trySetPickup(next, name)) {
-                                                        pickupLatLng = prevLatLng
-                                                        pickupLabel = prevLabel
-                                                    }
-                                                }
-                                            }
-                                        }
-                                }
+                                requestFreshGpsPickup()
                             },
                             shape = RoundedCornerShape(10.dp),
                             color = ByaheroDarkGreen,
@@ -1558,17 +1620,7 @@ fun MainScreen(
                                                         IconButton(
                                                             onClick = {
                                                                 focusedStopField = FocusedStopField.NONE
-                                                                val prevLatLng = pickupLatLng
-                                                                val prevLabel = pickupLabel
-                                                                pickupLatLng = userLocation
-                                                                pickupLabel = "Locating current address..."
-                                                                scope.launch {
-                                                                    val (resolved, _) = PlaceSearchHelper.reverseGeocode(context, userLocation)
-                                                                    if (!trySetPickup(userLocation, resolved)) {
-                                                                        pickupLatLng = prevLatLng
-                                                                        pickupLabel = prevLabel
-                                                                    }
-                                                                }
+                                                                requestFreshGpsPickup()
                                                             },
                                                             modifier = Modifier.size(30.dp)
                                                         ) {
@@ -4143,15 +4195,27 @@ fun MainScreen(
                                         ) {
                                             Column(
                                                 modifier = Modifier.padding(14.dp),
-                                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                                verticalArrangement = Arrangement.spacedBy(6.dp)
                                             ) {
-                                                Text(
-                                                    text = "BYAHERO by HDDEV · Version 2.4.0",
-                                                    fontFamily = PoppinsFontFamily,
-                                                    fontSize = 14.sp,
-                                                    fontWeight = FontWeight.ExtraBold,
-                                                    color = ByaheroWhite
-                                                )
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                ) {
+                                                    Image(
+                                                        painter = painterResource(id = R.drawable.ic_byahero_wordmark_light),
+                                                        contentDescription = "BYAHERO",
+                                                        modifier = Modifier
+                                                            .width(114.dp)
+                                                            .height(19.dp)
+                                                    )
+                                                    Text(
+                                                        text = "by HDDEV · v2.6.0 (2026)",
+                                                        fontFamily = PoppinsFontFamily,
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = Color(0xFFA7F3D0)
+                                                    )
+                                                }
                                                 Text(
                                                     text = "Dual-role motorcycle and taxi ride-hailing & nearby discovery platform engineered for commuters and partner riders.",
                                                     fontFamily = PoppinsFontFamily,

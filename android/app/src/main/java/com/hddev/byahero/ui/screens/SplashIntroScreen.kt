@@ -87,14 +87,13 @@ fun SplashIntroScreen(onFinished: () -> Unit) {
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            Text(
-                text = "BYAHERO",
-                color = ByaheroWhite,
-                fontFamily = PoppinsFontFamily,
-                fontSize = 36.sp,
-                fontWeight = FontWeight.ExtraBold,
-                letterSpacing = 5.sp,
-                modifier = Modifier.alpha(contentAlpha.value)
+            Image(
+                painter = painterResource(id = R.drawable.ic_byahero_wordmark_light),
+                contentDescription = "BYAHERO",
+                modifier = Modifier
+                    .width(235.dp)
+                    .height(38.dp)
+                    .alpha(contentAlpha.value)
             )
 
             Spacer(modifier = Modifier.height(8.dp))

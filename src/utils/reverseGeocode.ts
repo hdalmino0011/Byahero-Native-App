@@ -5,10 +5,29 @@ export interface ResolvedStopAddress {
   address: string;
 }
 
+export async function detectApproximateBrowserLocation(): Promise<LatLngPoint | null> {
+  try {
+    const res = await fetch('https://ipwho.is/', {headers: {Accept: 'application/json'}});
+    if (res.ok) {
+      const data = (await res.json()) as {latitude?: number; longitude?: number};
+      if (
+        typeof data.latitude === 'number' &&
+        typeof data.longitude === 'number' &&
+        !Number.isNaN(data.latitude) &&
+        !Number.isNaN(data.longitude)
+      ) {
+        return {lat: data.latitude, lng: data.longitude};
+      }
+    }
+  } catch {
+    // ignore network failure
+  }
+  return null;
+}
+
 function pickBestGooglePlaceLabel(results: google.maps.GeocoderResult[]): ResolvedStopAddress | null {
   if (!results || results.length === 0) return null;
 
-  // Prefer named POI, premise, establishment, route, or neighborhood over plus codes
   const preferred =
     results.find(
       (r) =>
@@ -44,7 +63,6 @@ function pickBestGooglePlaceLabel(results: google.maps.GeocoderResult[]): Resolv
 }
 
 export async function reverseGeocodePoint(coords: LatLngPoint): Promise<ResolvedStopAddress> {
-  // 1. Try Google Maps Geocoder when loaded
   if (typeof window !== 'undefined' && window.google?.maps?.Geocoder) {
     try {
       const geocoder = new window.google.maps.Geocoder();
@@ -54,11 +72,50 @@ export async function reverseGeocodePoint(coords: LatLngPoint): Promise<Resolved
         return parsed;
       }
     } catch {
-      // Fallback cleanly to Nominatim below
+      // Fallback cleanly to Photon / Nominatim below
     }
   }
 
-  // 2. Fallback to OpenStreetMap Nominatim reverse geocoding
+  try {
+    const photonRes = await fetch(
+      `https://photon.komoot.io/reverse?lat=${coords.lat}&lon=${coords.lng}&lang=en`,
+      {headers: {Accept: 'application/json'}}
+    );
+    if (photonRes.ok) {
+      const photonData = (await photonRes.json()) as {
+        features?: Array<{
+          properties?: {
+            name?: string;
+            street?: string;
+            district?: string;
+            locality?: string;
+            city?: string;
+          };
+        }>;
+      };
+      const props = photonData.features?.[0]?.properties;
+      if (props) {
+        const primary = props.name || props.street || props.district || props.locality;
+        const secondary = props.district || props.locality || props.city;
+        const label =
+          primary && secondary && primary !== secondary
+            ? `${primary}, ${secondary}`
+            : primary || secondary;
+        if (label) {
+          const full = [props.name, props.street, props.district, props.city]
+            .filter(Boolean)
+            .join(', ');
+          return {
+            label,
+            address: full || label,
+          };
+        }
+      }
+    }
+  } catch {
+    // Fallback to Nominatim below
+  }
+
   try {
     const res = await fetch(
       `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${coords.lat}&lon=${coords.lng}&zoom=18&addressdetails=1`,
