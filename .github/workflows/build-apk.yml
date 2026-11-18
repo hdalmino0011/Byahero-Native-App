@@ -28,10 +28,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
 
       - name: Install dependencies
-        run: npm install
+        run: npm install --no-audit --no-fund
 
       - name: Build production web bundle
         env:
@@ -45,22 +44,15 @@ jobs:
 
       - name: Upload Pages artifact
         if: github.event_name != 'pull_request'
+        continue-on-error: true
         uses: actions/upload-pages-artifact@v3
         with:
           path: ./dist
 
-  deploy-pages:
-    name: Publish to GitHub Pages
-    if: github.event_name != 'pull_request'
-    needs: build-web
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
       - name: Deploy to GitHub Pages
+        if: github.event_name != 'pull_request'
         id: deployment
+        continue-on-error: true
         uses: actions/deploy-pages@v4
 
   build-apk:

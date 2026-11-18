@@ -55,7 +55,8 @@ object PlaceSearchHelper {
             var bestLocation: Location? = null
             for (provider in providers) {
                 val loc = runCatching { lm.getLastKnownLocation(provider) }.getOrNull() ?: continue
-                if (bestLocation == null || loc.time > bestLocation.time || loc.accuracy < bestLocation.accuracy) {
+                val currentBest = bestLocation
+                if (currentBest == null || loc.time > currentBest.time || loc.accuracy < currentBest.accuracy) {
                     bestLocation = loc
                 }
             }
@@ -191,7 +192,7 @@ object PlaceSearchHelper {
                 val geocoder = Geocoder(context, Locale.getDefault())
                 @Suppress("DEPRECATION")
                 val addresses = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    suspendCancellableCoroutine { cont ->
+                    suspendCancellableCoroutine<List<android.location.Address>> { cont ->
                         geocoder.getFromLocation(
                             point.latitude,
                             point.longitude,

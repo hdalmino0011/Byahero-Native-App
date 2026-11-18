@@ -121,6 +121,7 @@ import com.hddev.byahero.data.NearbySpot
 import com.hddev.byahero.data.OrderHistoryStore
 import com.hddev.byahero.data.PaymentMethodType
 import com.hddev.byahero.data.PlaceSearchHelper
+import com.hddev.byahero.data.PromoCodeItem
 import com.hddev.byahero.data.RideStatus
 import com.hddev.byahero.data.SavedPaymentMethod
 import com.hddev.byahero.data.SupportTicketItem
@@ -270,14 +271,6 @@ fun MainScreen(
     var cardCvvInput by remember { mutableStateOf("") }
     var paymentStatusMessage by remember { mutableStateOf<String?>(null) }
 
-    var newFavNameInput by remember { mutableStateOf("") }
-    var newFavAddressInput by remember { mutableStateOf("") }
-    var promoCodeInput by remember { mutableStateOf("") }
-    var promoFeedbackMessage by remember { mutableStateOf<String?>(null) }
-
-    var supportCategory by remember { mutableStateOf("Trip & Fare Assistance") }
-    var supportMessageInput by remember { mutableStateOf("") }
-    var supportFeedback by remember { mutableStateOf<String?>(null) }
     var supportTickets by remember {
         mutableStateOf(
             listOf(
@@ -2571,6 +2564,122 @@ fun MainScreen(
                             }
 
                             2 -> {
+                                ByaheroOrderHistorySection(
+                                    orderHistory = orderHistory,
+                                    historyFilter = historyFilter,
+                                    onHistoryFilterChange = { historyFilter = it },
+                                    onBookAgain = { item ->
+                                        if (isSameStop(
+                                                item.pickupLat,
+                                                item.pickupLng,
+                                                item.pickupLabel,
+                                                item.destLat,
+                                                item.destLng,
+                                                item.destinationLabel
+                                            )
+                                        ) {
+                                            locationError = "Pickup and destination cannot be the same location."
+                                        } else {
+                                            userEditedPickup = true
+                                            pickupLatLng = LatLng(item.pickupLat, item.pickupLng)
+                                            pickupLabel = item.pickupLabel
+                                            destLatLng = LatLng(item.destLat, item.destLng)
+                                            destLabel = item.destinationLabel
+                                            selectedVehicle = item.vehicleType
+                                            activeRide = null
+                                            locationError = null
+                                            selectedTab = 0
+                                        }
+                                    }
+                                )
+                            }
+
+                            3 -> {
+                                ByaheroRiderDispatchSection(
+                                    profile = profile,
+                                    activeRiderJob = activeRiderJob,
+                                    incomingRequests = incomingRequests,
+                                    onUpdateProfile = onUpdateProfile,
+                                    onCompleteJob = { job ->
+                                        val payout = job.fare.finalFare + job.fare.riderIncentive
+                                        recordOrderInHistory(
+                                            job.copy(
+                                                status = RideStatus.COMPLETED,
+                                                createdAtLabel = OrderHistoryStore.currentTimeLabel(),
+                                                roleContext = "rider"
+                                            )
+                                        )
+                                        onUpdateProfile(
+                                            profile.copy(
+                                                totalRides = profile.totalRides + 1,
+                                                riderEarningsPhp = profile.riderEarningsPhp + payout,
+                                                riderIncentivesPhp = profile.riderIncentivesPhp + job.fare.riderIncentive
+                                            )
+                                        )
+                                        activeRiderJob = null
+                                    },
+                                    onAcceptRequest = { req ->
+                                        incomingRequests = incomingRequests.filter { it.id != req.id }
+                                        activeRiderJob = req.copy(
+                                            status = RideStatus.ACCEPTED,
+                                            riderName = profile.fullName,
+                                            riderPlate = profile.plateNumber
+                                        )
+                                        pickupLatLng = LatLng(req.pickupLat, req.pickupLng)
+                                        pickupLabel = req.pickupLabel
+                                        destLatLng = LatLng(req.destLat, req.destLng)
+                                        destLabel = req.destinationLabel
+                                    }
+                                )
+                            }
+
+                            4 -> {
+                                ByaheroSettingsSection(
+                                    profile = profile,
+                                    firstName = firstName,
+                                    userLocation = userLocation,
+                                    settingsSubTab = settingsSubTab,
+                                    settingsShowMenuList = settingsShowMenuList,
+                                    onSubTabChange = { settingsSubTab = it },
+                                    onShowMenuListChange = { settingsShowMenuList = it },
+                                    selectedPaymentId = selectedPaymentId,
+                                    selectedPaymentMethod = selectedPaymentMethod,
+                                    paymentMethods = paymentMethods,
+                                    onSelectPaymentMethod = { selectPaymentMethod(it) },
+                                    onAddAndSelectPaymentMethod = { addAndSelectPaymentMethod(it) },
+                                    onRemovePaymentMethod = { removePaymentMethod(it) },
+                                    favorites = favorites,
+                                    onUpdateFavoritesList = { updateFavoritesList(it) },
+                                    onRideToFavorite = { fav ->
+                                        if (trySetDestination(LatLng(fav.lat, fav.lng), fav.label)) {
+                                            selectedTab = 0
+                                        }
+                                    },
+                                    availablePromos = availablePromos,
+                                    appliedPromoCode = appliedPromoCode,
+                                    onUpdateAppliedPromo = { updateAppliedPromo(it) },
+                                    supportTickets = supportTickets,
+                                    onUpdateSupportTickets = { supportTickets = it },
+                                    onUpdateProfile = onUpdateProfile,
+                                    onSelectTab = { selectedTab = it },
+                                    onLogout = onLogout
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ByaheroOrderHistorySection(
+    orderHistory: List<ActiveRide>,
+    historyFilter: String,
+    onHistoryFilterChange: (String) -> Unit,
+    onBookAgain: (ActiveRide) -> Unit
+) {
                                 val completedOrders = orderHistory.filter { it.status == RideStatus.COMPLETED }
                                 val totalPassengerSpend = completedOrders
                                     .filter { it.roleContext != "rider" }
@@ -2667,7 +2776,7 @@ fun MainScreen(
                                                     .height(34.dp)
                                                     .clip(RoundedCornerShape(10.dp))
                                                     .background(if (active) ByaheroDarkGreen else Color.Transparent)
-                                                    .clickable { historyFilter = key },
+                                                    .clickable { onHistoryFilterChange(key) },
                                                 contentAlignment = Alignment.Center
                                             ) {
                                                 Text(
@@ -2840,29 +2949,7 @@ fun MainScreen(
                                                     )
                                                     if (!isRiderTrip) {
                                                         Surface(
-                                                            onClick = {
-                                                                if (isSameStop(
-                                                                        item.pickupLat,
-                                                                        item.pickupLng,
-                                                                        item.pickupLabel,
-                                                                        item.destLat,
-                                                                        item.destLng,
-                                                                        item.destinationLabel
-                                                                    )
-                                                                ) {
-                                                                    locationError = "Pickup and destination cannot be the same location."
-                                                                } else {
-                                                                    userEditedPickup = true
-                                                                    pickupLatLng = LatLng(item.pickupLat, item.pickupLng)
-                                                                    pickupLabel = item.pickupLabel
-                                                                    destLatLng = LatLng(item.destLat, item.destLng)
-                                                                    destLabel = item.destinationLabel
-                                                                    selectedVehicle = item.vehicleType
-                                                                    activeRide = null
-                                                                    locationError = null
-                                                                    selectedTab = 0
-                                                                }
-                                                            },
+                                                            onClick = { onBookAgain(item) },
                                                             shape = RoundedCornerShape(10.dp),
                                                             color = ByaheroSubtleGlass
                                                         ) {
@@ -2892,9 +2979,17 @@ fun MainScreen(
                                         }
                                     }
                                 }
-                            }
+}
 
-                            3 -> {
+@Composable
+private fun ByaheroRiderDispatchSection(
+    profile: UserProfile,
+    activeRiderJob: ActiveRide?,
+    incomingRequests: List<ActiveRide>,
+    onUpdateProfile: (UserProfile) -> Unit,
+    onCompleteJob: (ActiveRide) -> Unit,
+    onAcceptRequest: (ActiveRide) -> Unit
+) {
                                 if (profile.role == UserRole.PASSENGER) {
                                     Surface(
                                         shape = RoundedCornerShape(18.dp),
@@ -3077,24 +3172,7 @@ fun MainScreen(
                                                     color = ByaheroDarkGreen
                                                 )
                                                 Button(
-                                                    onClick = {
-                                                        val payout = job.fare.finalFare + job.fare.riderIncentive
-                                                        recordOrderInHistory(
-                                                            job.copy(
-                                                                status = RideStatus.COMPLETED,
-                                                                createdAtLabel = OrderHistoryStore.currentTimeLabel(),
-                                                                roleContext = "rider"
-                                                            )
-                                                        )
-                                                        onUpdateProfile(
-                                                            profile.copy(
-                                                                totalRides = profile.totalRides + 1,
-                                                                riderEarningsPhp = profile.riderEarningsPhp + payout,
-                                                                riderIncentivesPhp = profile.riderIncentivesPhp + job.fare.riderIncentive
-                                                            )
-                                                        )
-                                                        activeRiderJob = null
-                                                    },
+                                                    onClick = { onCompleteJob(job) },
                                                     modifier = Modifier
                                                         .fillMaxWidth()
                                                         .height(44.dp),
@@ -3175,18 +3253,7 @@ fun MainScreen(
                                                         color = ByaheroMuted
                                                     )
                                                     Button(
-                                                        onClick = {
-                                                            incomingRequests = incomingRequests.filter { it.id != req.id }
-                                                            activeRiderJob = req.copy(
-                                                                status = RideStatus.ACCEPTED,
-                                                                riderName = profile.fullName,
-                                                                riderPlate = profile.plateNumber
-                                                            )
-                                                            pickupLatLng = LatLng(req.pickupLat, req.pickupLng)
-                                                            pickupLabel = req.pickupLabel
-                                                            destLatLng = LatLng(req.destLat, req.destLng)
-                                                            destLabel = req.destinationLabel
-                                                        },
+                                                        onClick = { onAcceptRequest(req) },
                                                         modifier = Modifier
                                                             .fillMaxWidth()
                                                             .height(42.dp),
@@ -3208,9 +3275,53 @@ fun MainScreen(
                                         }
                                     }
                                 }
-                            }
+}
 
-                            4 -> {
+@Composable
+private fun ByaheroSettingsSection(
+    profile: UserProfile,
+    firstName: String,
+    userLocation: LatLng,
+    settingsSubTab: SettingsSubTab,
+    settingsShowMenuList: Boolean,
+    onSubTabChange: (SettingsSubTab) -> Unit,
+    onShowMenuListChange: (Boolean) -> Unit,
+    selectedPaymentId: String,
+    selectedPaymentMethod: SavedPaymentMethod,
+    paymentMethods: List<SavedPaymentMethod>,
+    onSelectPaymentMethod: (String) -> Unit,
+    onAddAndSelectPaymentMethod: (SavedPaymentMethod) -> Unit,
+    onRemovePaymentMethod: (String) -> Unit,
+    favorites: List<FavoriteDestination>,
+    onUpdateFavoritesList: (List<FavoriteDestination>) -> Unit,
+    onRideToFavorite: (FavoriteDestination) -> Unit,
+    availablePromos: List<PromoCodeItem>,
+    appliedPromoCode: String?,
+    onUpdateAppliedPromo: (String?) -> Unit,
+    supportTickets: List<SupportTicketItem>,
+    onUpdateSupportTickets: (List<SupportTicketItem>) -> Unit,
+    onUpdateProfile: (UserProfile) -> Unit,
+    onSelectTab: (Int) -> Unit,
+    onLogout: () -> Unit
+) {
+    var addingPaymentForm by remember { mutableStateOf<PaymentMethodType?>(null) }
+    var gcashNumberInput by remember { mutableStateOf("") }
+    var gcashNameInput by remember { mutableStateOf("") }
+    var cardHolderInput by remember { mutableStateOf("") }
+    var cardNumberInput by remember { mutableStateOf("") }
+    var cardExpiryInput by remember { mutableStateOf("") }
+    var cardCvvInput by remember { mutableStateOf("") }
+    var paymentStatusMessage by remember { mutableStateOf<String?>(null) }
+
+    var newFavNameInput by remember { mutableStateOf("") }
+    var newFavAddressInput by remember { mutableStateOf("") }
+    var promoCodeInput by remember { mutableStateOf("") }
+    var promoFeedbackMessage by remember { mutableStateOf<String?>(null) }
+
+    var supportCategory by remember { mutableStateOf("Trip & Fare Assistance") }
+    var supportMessageInput by remember { mutableStateOf("") }
+    var supportFeedback by remember { mutableStateOf<String?>(null) }
+
                                 if (settingsShowMenuList) {
                                     Surface(
                                         shape = RoundedCornerShape(18.dp),
@@ -3277,8 +3388,8 @@ fun MainScreen(
                                             }
                                             Surface(
                                                 onClick = {
-                                                    settingsSubTab = SettingsSubTab.ACCOUNT
-                                                    settingsShowMenuList = false
+                                                    onSubTabChange(SettingsSubTab.ACCOUNT)
+                                                    onShowMenuListChange(false)
                                                 },
                                                 shape = RoundedCornerShape(10.dp),
                                                 color = ByaheroWhite.copy(alpha = 0.16f),
@@ -3315,18 +3426,18 @@ fun MainScreen(
                                             badge = profile.role.name,
                                             icon = Icons.Default.Person,
                                             onClick = {
-                                                settingsSubTab = SettingsSubTab.ACCOUNT
-                                                settingsShowMenuList = false
+                                                onSubTabChange(SettingsSubTab.ACCOUNT)
+                                                onShowMenuListChange(false)
                                             }
                                         )
                                         SettingsVerticalOptionCard(
                                             label = "Favorites",
                                             subtitle = "Saved frequent destinations for 1-tap booking",
-                                            badge = "${favoriteDestinations.size} saved",
+                                            badge = "${favorites.size} saved",
                                             icon = Icons.Default.Bookmark,
                                             onClick = {
-                                                settingsSubTab = SettingsSubTab.FAVORITES
-                                                settingsShowMenuList = false
+                                                onSubTabChange(SettingsSubTab.FAVORITES)
+                                                onShowMenuListChange(false)
                                             }
                                         )
                                         SettingsVerticalOptionCard(
@@ -3335,18 +3446,18 @@ fun MainScreen(
                                             badge = selectedPaymentMethod.label,
                                             icon = Icons.Default.CreditCard,
                                             onClick = {
-                                                settingsSubTab = SettingsSubTab.PAYMENTS
-                                                settingsShowMenuList = false
+                                                onSubTabChange(SettingsSubTab.PAYMENTS)
+                                                onShowMenuListChange(false)
                                             }
                                         )
                                         SettingsVerticalOptionCard(
                                             label = "Promo Codes",
                                             subtitle = "Redeem vouchers & Saturday 10% commuter discounts",
-                                            badge = activePromoCode ?: "3 available",
+                                            badge = appliedPromoCode ?: "3 available",
                                             icon = Icons.Default.LocalOffer,
                                             onClick = {
-                                                settingsSubTab = SettingsSubTab.PROMOS
-                                                settingsShowMenuList = false
+                                                onSubTabChange(SettingsSubTab.PROMOS)
+                                                onShowMenuListChange(false)
                                             }
                                         )
                                         SettingsVerticalOptionCard(
@@ -3355,8 +3466,8 @@ fun MainScreen(
                                             badge = "${supportTickets.size} tickets",
                                             icon = Icons.Default.SupportAgent,
                                             onClick = {
-                                                settingsSubTab = SettingsSubTab.SUPPORT
-                                                settingsShowMenuList = false
+                                                onSubTabChange(SettingsSubTab.SUPPORT)
+                                                onShowMenuListChange(false)
                                             }
                                         )
                                         SettingsVerticalOptionCard(
@@ -3365,8 +3476,8 @@ fun MainScreen(
                                             badge = "v2.6.0",
                                             icon = Icons.Default.Info,
                                             onClick = {
-                                                settingsSubTab = SettingsSubTab.ABOUT
-                                                settingsShowMenuList = false
+                                                onSubTabChange(SettingsSubTab.ABOUT)
+                                                onShowMenuListChange(false)
                                             }
                                         )
                                     }
@@ -3410,7 +3521,7 @@ fun MainScreen(
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             Surface(
-                                                onClick = { settingsShowMenuList = true },
+                                                onClick = { onShowMenuListChange(true) },
                                                 shape = RoundedCornerShape(10.dp),
                                                 color = ByaheroSubtleGlass
                                             ) {
@@ -3559,7 +3670,7 @@ fun MainScreen(
                                                                     .background(if (active) ByaheroDarkGreen else ByaheroSubtleGlass)
                                                                     .clickable {
                                                                         onUpdateProfile(profile.copy(activeMode = modeItem))
-                                                                        selectedTab = if (modeItem == ActiveMode.RIDER) 3 else 0
+                                                                        onSelectTab(if (modeItem == ActiveMode.RIDER) 3 else 0)
                                                                     },
                                                                 contentAlignment = Alignment.Center
                                                             ) {
@@ -3680,7 +3791,7 @@ fun MainScreen(
                                                             lng = userLocation.longitude + 0.012,
                                                             ordersCount = 1
                                                         )
-                                                        updateFavoritesList(listOf(newFav) + favorites)
+                                                        onUpdateFavoritesList(listOf(newFav) + favorites)
                                                         newFavNameInput = ""
                                                         newFavAddressInput = ""
                                                     },
@@ -3753,13 +3864,11 @@ fun MainScreen(
                                                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                                                     ) {
                                                         SmallChipButton("Ride Here") {
-                                                            if (trySetDestination(LatLng(fav.lat, fav.lng), fav.label)) {
-                                                                selectedTab = 0
-                                                            }
+                                                            onRideToFavorite(fav)
                                                         }
                                                         IconButton(
                                                             onClick = {
-                                                                updateFavoritesList(favorites.filter { it.id != fav.id })
+                                                                onUpdateFavoritesList(favorites.filter { it.id != fav.id })
                                                             },
                                                             modifier = Modifier.size(28.dp)
                                                         ) {
@@ -3811,7 +3920,7 @@ fun MainScreen(
                                                 Row(
                                                     modifier = Modifier
                                                         .fillMaxWidth()
-                                                        .clickable { selectPaymentMethod(method.id) }
+                                                        .clickable { onSelectPaymentMethod(method.id) }
                                                         .padding(12.dp),
                                                     horizontalArrangement = Arrangement.SpaceBetween,
                                                     verticalAlignment = Alignment.CenterVertically
@@ -3860,11 +3969,11 @@ fun MainScreen(
                                                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                                                     ) {
                                                         SmallChipButton(if (isSelected) "Default" else "Select") {
-                                                            selectPaymentMethod(method.id)
+                                                            onSelectPaymentMethod(method.id)
                                                         }
                                                         if (method.type != PaymentMethodType.CASH) {
                                                             IconButton(
-                                                                onClick = { removePaymentMethod(method.id) },
+                                                                onClick = { onRemovePaymentMethod(method.id) },
                                                                 modifier = Modifier.size(28.dp)
                                                             ) {
                                                                 Icon(
@@ -3970,7 +4079,7 @@ fun MainScreen(
                                                             }
                                                             val last4 = digits.takeLast(4)
                                                             val holder = gcashNameInput.trim().ifBlank { profile.fullName }
-                                                            addAndSelectPaymentMethod(
+                                                            onAddAndSelectPaymentMethod(
                                                                 SavedPaymentMethod(
                                                                     id = "pm_gcash_${System.currentTimeMillis()}",
                                                                     type = PaymentMethodType.GCASH,
@@ -4078,7 +4187,7 @@ fun MainScreen(
                                                                 else -> "Card"
                                                             }
                                                             val holder = cardHolderInput.trim().ifBlank { profile.fullName }
-                                                            addAndSelectPaymentMethod(
+                                                            onAddAndSelectPaymentMethod(
                                                                 SavedPaymentMethod(
                                                                     id = "pm_card_${System.currentTimeMillis()}",
                                                                     type = PaymentMethodType.CARD,
@@ -4151,7 +4260,7 @@ fun MainScreen(
                                                         val clean = promoCodeInput.trim().uppercase()
                                                         val match = availablePromos.firstOrNull { it.code == clean }
                                                         if (match != null) {
-                                                            updateAppliedPromo(match.code)
+                                                            onUpdateAppliedPromo(match.code)
                                                             promoFeedbackMessage = "Promo code ${match.code} applied!"
                                                             promoCodeInput = ""
                                                         } else {
@@ -4205,7 +4314,7 @@ fun MainScreen(
                                                     }
                                                     Spacer(modifier = Modifier.width(8.dp))
                                                     SmallChipButton(if (isApplied) "Applied" else "Use Code") {
-                                                        updateAppliedPromo(if (isApplied) null else promo.code)
+                                                        onUpdateAppliedPromo(if (isApplied) null else promo.code)
                                                         promoFeedbackMessage = if (isApplied) {
                                                             "Removed promo code ${promo.code}."
                                                         } else {
@@ -4310,7 +4419,7 @@ fun MainScreen(
                                                             status = "Open",
                                                             createdAt = "Just now"
                                                         )
-                                                        supportTickets = listOf(ticket) + supportTickets
+                                                        onUpdateSupportTickets(listOf(ticket) + supportTickets)
                                                         supportMessageInput = ""
                                                         supportFeedback = "Ticket ${ticket.id} submitted to 24/7 dispatch support."
                                                     },
@@ -4426,15 +4535,8 @@ fun MainScreen(
                                             }
                                         }
                                     }
-                                    }
                                 }
                             }
-                        }
-                    }
-                }
-            }
-        }
-    }
 }
 
 @Composable
