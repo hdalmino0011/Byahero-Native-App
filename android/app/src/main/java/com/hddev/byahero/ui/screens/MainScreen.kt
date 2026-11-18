@@ -182,6 +182,7 @@ fun MainScreen(
         mutableStateOf(if (profile.activeMode == ActiveMode.RIDER) 3 else 0)
     }
     var settingsSubTab by remember { mutableStateOf(SettingsSubTab.ACCOUNT) }
+    var settingsShowMenuList by remember { mutableStateOf(true) }
     var fullMapExpanded by remember { mutableStateOf(false) }
 
     var userLocation by remember {
@@ -767,6 +768,7 @@ fun MainScreen(
                     Surface(
                         onClick = {
                             settingsSubTab = SettingsSubTab.ACCOUNT
+                            settingsShowMenuList = false
                             selectedTab = 4
                             fullMapExpanded = false
                         },
@@ -837,7 +839,11 @@ fun MainScreen(
                 )
                 NavigationBarItem(
                     selected = selectedTab == 4,
-                    onClick = { selectedTab = 4; fullMapExpanded = false },
+                    onClick = {
+                        selectedTab = 4
+                        settingsShowMenuList = true
+                        fullMapExpanded = false
+                    },
                     icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
                     label = { Text("Settings", fontFamily = PoppinsFontFamily, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false) },
                     colors = navColors
@@ -850,6 +856,7 @@ fun MainScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
+            if (selectedTab != 4) {
             val mapWeight = when {
                 fullMapExpanded -> 1f
                 selectedTab == 0 || selectedTab == 1 -> 0.42f
@@ -1407,12 +1414,19 @@ fun MainScreen(
                     }
                 }
             }
+            }
 
-            if (!fullMapExpanded) {
+            if (!fullMapExpanded || selectedTab == 4) {
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(if (selectedTab == 0 || selectedTab == 1) 0.58f else 0.74f),
+                        .weight(
+                            when {
+                                selectedTab == 4 -> 1f
+                                selectedTab == 0 || selectedTab == 1 -> 0.58f
+                                else -> 0.74f
+                            }
+                        ),
                     color = ByaheroCanvas
                 ) {
                     Column(
@@ -1972,6 +1986,7 @@ fun MainScreen(
                                                     color = ByaheroDarkGreen,
                                                     modifier = Modifier.clickable {
                                                         settingsSubTab = SettingsSubTab.PAYMENTS
+                                                        settingsShowMenuList = false
                                                         selectedTab = 4
                                                     }
                                                 )
@@ -3196,67 +3211,236 @@ fun MainScreen(
                             }
 
                             4 -> {
-                                Surface(
-                                    shape = RoundedCornerShape(16.dp),
-                                    color = ByaheroSubtleGlass,
-                                    border = BorderStroke(1.dp, ByaheroBorder)
-                                ) {
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(6.dp),
-                                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                                if (settingsShowMenuList) {
+                                    Surface(
+                                        shape = RoundedCornerShape(18.dp),
+                                        color = ByaheroDarkGreen
                                     ) {
                                         Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(16.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            SettingsSubTabButton(
+                                            Row(
                                                 modifier = Modifier.weight(1f),
-                                                label = "Account",
-                                                icon = Icons.Default.Person,
-                                                selected = settingsSubTab == SettingsSubTab.ACCOUNT
-                                            ) { settingsSubTab = SettingsSubTab.ACCOUNT }
-                                            SettingsSubTabButton(
-                                                modifier = Modifier.weight(1f),
-                                                label = "Favorites",
-                                                icon = Icons.Default.Bookmark,
-                                                selected = settingsSubTab == SettingsSubTab.FAVORITES
-                                            ) { settingsSubTab = SettingsSubTab.FAVORITES }
-                                            SettingsSubTabButton(
-                                                modifier = Modifier.weight(1f),
-                                                label = "Payments",
-                                                icon = Icons.Default.CreditCard,
-                                                selected = settingsSubTab == SettingsSubTab.PAYMENTS
-                                            ) { settingsSubTab = SettingsSubTab.PAYMENTS }
-                                        }
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            SettingsSubTabButton(
-                                                modifier = Modifier.weight(1f),
-                                                label = "Promo Codes",
-                                                icon = Icons.Default.LocalOffer,
-                                                selected = settingsSubTab == SettingsSubTab.PROMOS
-                                            ) { settingsSubTab = SettingsSubTab.PROMOS }
-                                            SettingsSubTabButton(
-                                                modifier = Modifier.weight(1f),
-                                                label = "Support",
-                                                icon = Icons.Default.SupportAgent,
-                                                selected = settingsSubTab == SettingsSubTab.SUPPORT
-                                            ) { settingsSubTab = SettingsSubTab.SUPPORT }
-                                            SettingsSubTabButton(
-                                                modifier = Modifier.weight(1f),
-                                                label = "About",
-                                                icon = Icons.Default.Info,
-                                                selected = settingsSubTab == SettingsSubTab.ABOUT
-                                            ) { settingsSubTab = SettingsSubTab.ABOUT }
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                            ) {
+                                                Surface(
+                                                    shape = CircleShape,
+                                                    color = ByaheroWhite.copy(alpha = 0.16f),
+                                                    border = BorderStroke(1.dp, ByaheroWhite.copy(alpha = 0.28f)),
+                                                    modifier = Modifier.size(46.dp)
+                                                ) {
+                                                    Box(contentAlignment = Alignment.Center) {
+                                                        Text(
+                                                            text = firstName.take(1).uppercase(),
+                                                            fontFamily = PoppinsFontFamily,
+                                                            fontSize = 18.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = ByaheroWhite
+                                                        )
+                                                    }
+                                                }
+                                                Column(
+                                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                                ) {
+                                                    Text(
+                                                        text = profile.fullName,
+                                                        fontFamily = PoppinsFontFamily,
+                                                        fontSize = 16.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = ByaheroWhite,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                    Text(
+                                                        text = profile.email,
+                                                        fontFamily = PoppinsFontFamily,
+                                                        fontSize = 11.sp,
+                                                        color = Color(0xFFD1FAE5),
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                    Text(
+                                                        text = "${profile.role.name} · ${selectedPaymentMethod.label}",
+                                                        fontFamily = PoppinsFontFamily,
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        color = Color(0xFFA7F3D0),
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
+                                            }
+                                            Surface(
+                                                onClick = {
+                                                    settingsSubTab = SettingsSubTab.ACCOUNT
+                                                    settingsShowMenuList = false
+                                                },
+                                                shape = RoundedCornerShape(10.dp),
+                                                color = ByaheroWhite.copy(alpha = 0.16f),
+                                                border = BorderStroke(1.dp, ByaheroWhite.copy(alpha = 0.25f))
+                                            ) {
+                                                Text(
+                                                    text = "Account",
+                                                    fontFamily = PoppinsFontFamily,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = ByaheroWhite,
+                                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+                                                )
+                                            }
                                         }
                                     }
-                                }
 
-                                when (settingsSubTab) {
+                                    Text(
+                                        text = "SETTINGS OPTIONS",
+                                        fontFamily = PoppinsFontFamily,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = ByaheroMuted,
+                                        modifier = Modifier.padding(start = 4.dp, top = 4.dp)
+                                    )
+
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        SettingsVerticalOptionCard(
+                                            label = "Account",
+                                            subtitle = "Profile details, Passenger/Rider role & vehicle info",
+                                            badge = profile.role.name,
+                                            icon = Icons.Default.Person,
+                                            onClick = {
+                                                settingsSubTab = SettingsSubTab.ACCOUNT
+                                                settingsShowMenuList = false
+                                            }
+                                        )
+                                        SettingsVerticalOptionCard(
+                                            label = "Favorites",
+                                            subtitle = "Saved frequent destinations for 1-tap booking",
+                                            badge = "${favoriteDestinations.size} saved",
+                                            icon = Icons.Default.Bookmark,
+                                            onClick = {
+                                                settingsSubTab = SettingsSubTab.FAVORITES
+                                                settingsShowMenuList = false
+                                            }
+                                        )
+                                        SettingsVerticalOptionCard(
+                                            label = "Payment Method",
+                                            subtitle = "Cash, GCash wallet & registered credit/debit cards",
+                                            badge = selectedPaymentMethod.label,
+                                            icon = Icons.Default.CreditCard,
+                                            onClick = {
+                                                settingsSubTab = SettingsSubTab.PAYMENTS
+                                                settingsShowMenuList = false
+                                            }
+                                        )
+                                        SettingsVerticalOptionCard(
+                                            label = "Promo Codes",
+                                            subtitle = "Redeem vouchers & Saturday 10% commuter discounts",
+                                            badge = activePromoCode ?: "3 available",
+                                            icon = Icons.Default.LocalOffer,
+                                            onClick = {
+                                                settingsSubTab = SettingsSubTab.PROMOS
+                                                settingsShowMenuList = false
+                                            }
+                                        )
+                                        SettingsVerticalOptionCard(
+                                            label = "Support Service",
+                                            subtitle = "24/7 dispatch assistance, lost items & fare help",
+                                            badge = "${supportTickets.size} tickets",
+                                            icon = Icons.Default.SupportAgent,
+                                            onClick = {
+                                                settingsSubTab = SettingsSubTab.SUPPORT
+                                                settingsShowMenuList = false
+                                            }
+                                        )
+                                        SettingsVerticalOptionCard(
+                                            label = "About",
+                                            subtitle = "BYAHERO platform info, fare matrix & version",
+                                            badge = "v2.6.0",
+                                            icon = Icons.Default.Info,
+                                            onClick = {
+                                                settingsSubTab = SettingsSubTab.ABOUT
+                                                settingsShowMenuList = false
+                                            }
+                                        )
+                                    }
+
+                                    OutlinedButton(
+                                        onClick = onLogout,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(48.dp),
+                                        shape = RoundedCornerShape(14.dp),
+                                        border = BorderStroke(1.dp, Color(0xFFFECACA)),
+                                        colors = ButtonDefaults.outlinedButtonColors(
+                                            containerColor = Color(0xFFFEF2F2),
+                                            contentColor = Color(0xFFB91C1C)
+                                        )
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.Logout,
+                                            contentDescription = "Log Out",
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = "Log Out of BYAHERO",
+                                            fontFamily = PoppinsFontFamily,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                } else {
+                                    Surface(
+                                        shape = RoundedCornerShape(14.dp),
+                                        color = ByaheroWhite,
+                                        border = BorderStroke(1.dp, ByaheroBorder)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Surface(
+                                                onClick = { settingsShowMenuList = true },
+                                                shape = RoundedCornerShape(10.dp),
+                                                color = ByaheroSubtleGlass
+                                            ) {
+                                                Text(
+                                                    text = "<- All Settings",
+                                                    fontFamily = PoppinsFontFamily,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = ByaheroDarkGreen,
+                                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                                )
+                                            }
+                                            Text(
+                                                text = when (settingsSubTab) {
+                                                    SettingsSubTab.ACCOUNT -> "Account"
+                                                    SettingsSubTab.FAVORITES -> "Favorites"
+                                                    SettingsSubTab.PAYMENTS -> "Payment Method"
+                                                    SettingsSubTab.PROMOS -> "Promo Codes"
+                                                    SettingsSubTab.SUPPORT -> "Support Service"
+                                                    SettingsSubTab.ABOUT -> "About"
+                                                },
+                                                fontFamily = PoppinsFontFamily,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = ByaheroBlack
+                                            )
+                                        }
+                                    }
+
+                                    when (settingsSubTab) {
                                     SettingsSubTab.ACCOUNT -> {
                                         Surface(
                                             shape = RoundedCornerShape(18.dp),
@@ -4242,6 +4426,7 @@ fun MainScreen(
                                             }
                                         }
                                     }
+                                    }
                                 }
                             }
                         }
@@ -4253,40 +4438,84 @@ fun MainScreen(
 }
 
 @Composable
-private fun SettingsSubTabButton(
-    modifier: Modifier,
+private fun SettingsVerticalOptionCard(
     label: String,
+    subtitle: String,
+    badge: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
-    selected: Boolean,
     onClick: () -> Unit
 ) {
     Surface(
-        modifier = modifier.height(36.dp),
+        modifier = Modifier.fillMaxWidth(),
         onClick = onClick,
-        shape = RoundedCornerShape(10.dp),
-        color = if (selected) ByaheroDarkGreen else Color.Transparent
+        shape = RoundedCornerShape(16.dp),
+        color = ByaheroWhite,
+        border = BorderStroke(1.dp, ByaheroBorder)
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 6.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 13.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = if (selected) ByaheroWhite else ByaheroMuted,
-                modifier = Modifier.size(13.dp)
-            )
-            Spacer(modifier = Modifier.width(4.dp))
-            Text(
-                text = label,
-                fontFamily = PoppinsFontFamily,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold,
-                color = if (selected) ByaheroWhite else ByaheroMuted,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = ByaheroSubtleGlass,
+                modifier = Modifier.size(42.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = label,
+                        tint = ByaheroDarkGreen,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = label,
+                        fontFamily = PoppinsFontFamily,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = ByaheroBlack,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = ByaheroSubtleGlass
+                    ) {
+                        Text(
+                            text = badge,
+                            fontFamily = PoppinsFontFamily,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = ByaheroDarkGreen,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
+                }
+                Text(
+                    text = subtitle,
+                    fontFamily = PoppinsFontFamily,
+                    fontSize = 11.sp,
+                    color = ByaheroMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
     }
 }

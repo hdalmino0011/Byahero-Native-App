@@ -1,9 +1,11 @@
 import React, {useState} from 'react';
 import {
+  ArrowLeft,
   Banknote,
   Bike,
   Bookmark,
   CheckCircle2,
+  ChevronRight,
   CreditCard,
   Headphones,
   Info,
@@ -33,12 +35,14 @@ import {
 interface SettingsPanelProps {
   profile: UserProfile;
   activeSection: SettingsSection;
+  showMenuList: boolean;
   favorites: FavoriteDestination[];
   paymentMethods: SavedPaymentMethod[];
   selectedPaymentId: string;
   promoCodes: PromoCodeItem[];
   appliedPromoCode: string | null;
   onSelectSection: (section: SettingsSection) => void;
+  onBackToMenu: () => void;
   onOpenAuthModal: () => void;
   onSwitchRole: (role: UserRole) => void;
   onSwitchActiveMode: (mode: ActiveMode) => void;
@@ -55,12 +59,14 @@ interface SettingsPanelProps {
 export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   profile,
   activeSection,
+  showMenuList,
   favorites,
   paymentMethods,
   selectedPaymentId,
   promoCodes,
   appliedPromoCode,
   onSelectSection,
+  onBackToMenu,
   onOpenAuthModal,
   onSwitchRole,
   onSwitchActiveMode,
@@ -105,18 +111,61 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
     null
   );
 
+  const activePayment =
+    paymentMethods.find((m) => m.id === selectedPaymentId) || paymentMethods[0];
+
   const sections: Array<{
     id: SettingsSection;
     label: string;
+    subtitle: string;
+    badge?: string;
     icon: React.ComponentType<{className?: string}>;
   }> = [
-    {id: 'account', label: 'Account', icon: User},
-    {id: 'favorites', label: 'Favorites', icon: Bookmark},
-    {id: 'payments', label: 'Payments', icon: CreditCard},
-    {id: 'promos', label: 'Promo Codes', icon: Tag},
-    {id: 'support', label: 'Support', icon: Headphones},
-    {id: 'about', label: 'About', icon: Info},
+    {
+      id: 'account',
+      label: 'Account',
+      subtitle: 'Profile details, Passenger/Rider role & vehicle plate',
+      badge: profile.role === 'both' ? 'Dual Role' : profile.role,
+      icon: User,
+    },
+    {
+      id: 'favorites',
+      label: 'Favorites',
+      subtitle: 'Destinations always ordered for instant 1-tap booking',
+      badge: `${favorites.length} saved`,
+      icon: Bookmark,
+    },
+    {
+      id: 'payments',
+      label: 'Payment Method',
+      subtitle: 'Cash, connected GCash & registered credit/debit cards',
+      badge: activePayment?.label || 'Cash',
+      icon: CreditCard,
+    },
+    {
+      id: 'promos',
+      label: 'Promo Codes',
+      subtitle: 'Redeem Saturday 10% off & rider bonus vouchers',
+      badge: appliedPromoCode || `${promoCodes.length} available`,
+      icon: Tag,
+    },
+    {
+      id: 'support',
+      label: 'Support Service',
+      subtitle: '24/7 live dispatch assistance & support tickets',
+      icon: Headphones,
+    },
+    {
+      id: 'about',
+      label: 'About',
+      subtitle: 'BYAHERO by HDDEV platform info & fare policy',
+      badge: 'v2.6.0',
+      icon: Info,
+    },
   ];
+
+  const currentSectionMeta =
+    sections.find((s) => s.id === activeSection) || sections[0];
 
   const handleAddFavoriteSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -227,137 +276,93 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
     );
   };
 
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-3 gap-1.5 p-1.5 rounded-2xl bg-[#EBF1ED]/90 border border-[#0F522B]/10">
-        {sections.map((sec) => {
-          const Icon = sec.icon;
-          const active = activeSection === sec.id;
-          return (
-            <button
-              key={sec.id}
-              type="button"
-              onClick={() => onSelectSection(sec.id)}
-              className={`h-9 px-2 rounded-xl text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all ${
-                active
-                  ? 'bg-[#0F522B] text-white shadow-sm'
-                  : 'text-[#55625A] hover:text-[#101713]'
-              }`}
-            >
-              <Icon className="w-3.5 h-3.5 shrink-0" />
-              <span className="truncate">{sec.label}</span>
-            </button>
-          );
-        })}
-      </div>
+  const initials = profile.fullName
+    .split(' ')
+    .map((n) => n[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
 
-      {activeSection === 'account' && (
-        <div className="space-y-3.5">
-          <div className="p-4 rounded-2xl glass-green text-white space-y-3">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="w-11 h-11 rounded-full bg-white/15 border border-white/25 flex items-center justify-center text-white font-extrabold text-sm shrink-0">
-                  {profile.fullName
-                    .split(' ')
-                    .map((n) => n[0])
-                    .join('')
-                    .slice(0, 2)
-                    .toUpperCase()}
-                </div>
-                <div className="min-w-0">
-                  <h3 className="text-sm font-bold text-white truncate">
-                    {profile.fullName}
-                  </h3>
-                  <div className="text-xs text-white/80 truncate">{profile.email}</div>
-                  <div className="inline-flex items-center gap-1 mt-1 text-[11px] text-emerald-200 font-semibold">
-                    <ShieldCheck className="w-3.5 h-3.5" />
-                    <span>
-                      {profile.authProvider === 'google'
-                        ? 'Google Connected'
-                        : 'BYAHERO Member'}
-                    </span>
-                  </div>
+  return (
+    <div className="w-full max-w-2xl mx-auto space-y-4 pb-6">
+      {showMenuList ? (
+        <div className="space-y-4">
+          {/* Top Profile Summary Banner */}
+          <div className="p-4 rounded-2xl glass-green text-white flex items-center justify-between gap-3 shadow-md">
+            <div className="flex items-center gap-3.5 min-w-0">
+              <div className="w-12 h-12 rounded-full bg-white/15 border border-white/25 flex items-center justify-center text-white font-extrabold text-sm shrink-0">
+                {initials}
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-base font-bold text-white truncate">
+                  {profile.fullName}
+                </h2>
+                <p className="text-xs text-emerald-100 truncate">{profile.email}</p>
+                <div className="mt-1 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-white/15 text-[10px] font-semibold text-emerald-100">
+                  <ShieldCheck className="w-3 h-3" />
+                  <span>
+                    {profile.role === 'both'
+                      ? 'Passenger & Rider Account'
+                      : profile.role === 'rider'
+                      ? 'Partner Rider Account'
+                      : 'Passenger Account'}
+                  </span>
                 </div>
               </div>
-
-              <button
-                type="button"
-                onClick={onOpenAuthModal}
-                className="min-h-[36px] px-3 rounded-xl bg-white text-[#0F522B] hover:bg-emerald-50 text-xs font-bold whitespace-nowrap shrink-0 transition-colors"
-              >
-                Edit Profile
-              </button>
             </div>
+            <button
+              type="button"
+              onClick={() => onSelectSection('account')}
+              className="px-3 py-2 rounded-xl bg-white text-[#0F522B] hover:bg-emerald-50 text-xs font-bold shrink-0 shadow-sm transition-colors"
+            >
+              Manage
+            </button>
           </div>
 
-          <div className="p-4 rounded-2xl glass-surface space-y-3">
-            <div className="text-xs font-bold text-[#101713]">Account Role</div>
-            <div className="grid grid-cols-3 gap-2">
-              {(['passenger', 'rider', 'both'] as UserRole[]).map((r) => {
-                const active = profile.role === r;
+          {/* Vertical Settings Menu Options */}
+          <div className="space-y-2.5">
+            <div className="px-1 text-xs font-bold uppercase tracking-wider text-[#0F522B]">
+              Settings Options
+            </div>
+            <div className="flex flex-col gap-2.5">
+              {sections.map((sec) => {
+                const Icon = sec.icon;
                 return (
                   <button
-                    key={r}
+                    key={sec.id}
                     type="button"
-                    onClick={() => onSwitchRole(r)}
-                    className={`min-h-[42px] px-2.5 py-2 rounded-xl border text-xs font-semibold capitalize transition-all ${
-                      active
-                        ? 'bg-[#0F522B] border-[#0F522B] text-white shadow-sm'
-                        : 'bg-white/70 border-[#0F522B]/15 text-[#55625A] hover:text-[#101713]'
-                    }`}
+                    onClick={() => onSelectSection(sec.id)}
+                    className="w-full p-3.5 rounded-2xl glass-surface hover:border-[#0F522B]/35 flex items-center justify-between gap-3 text-left transition-all group"
                   >
-                    {r === 'both' ? 'Both Roles' : r}
+                    <div className="flex items-center gap-3.5 min-w-0">
+                      <div className="w-10 h-10 rounded-xl bg-[#EBF1ED] group-hover:bg-[#0F522B] text-[#0F522B] group-hover:text-white flex items-center justify-center shrink-0 transition-colors">
+                        <Icon className="w-5 h-5" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-sm font-bold text-[#101713]">
+                          {sec.label}
+                        </div>
+                        <div className="text-xs text-[#55625A] truncate mt-0.5">
+                          {sec.subtitle}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      {sec.badge && (
+                        <span className="px-2.5 py-1 rounded-lg bg-[#EBF1ED] text-[#0F522B] text-[11px] font-bold max-w-[120px] truncate">
+                          {sec.badge}
+                        </span>
+                      )}
+                      <ChevronRight className="w-4 h-4 text-[#55625A] group-hover:text-[#0F522B] transition-colors" />
+                    </div>
                   </button>
                 );
               })}
             </div>
-
-            {profile.role === 'both' && (
-              <div className="pt-2 border-t border-[#0F522B]/10 space-y-2">
-                <div className="text-[11px] text-[#55625A]">Active Operating Mode</div>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => onSwitchActiveMode('passenger')}
-                    className={`min-h-[40px] px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
-                      profile.activeMode === 'passenger'
-                        ? 'bg-[#0F522B] border-[#0F522B] text-white'
-                        : 'bg-white/70 border-[#0F522B]/15 text-[#55625A]'
-                    }`}
-                  >
-                    <User className="w-3.5 h-3.5" />
-                    <span>Passenger Mode</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onSwitchActiveMode('rider')}
-                    className={`min-h-[40px] px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
-                      profile.activeMode === 'rider'
-                        ? 'bg-[#0F522B] border-[#0F522B] text-white'
-                        : 'bg-white/70 border-[#0F522B]/15 text-[#55625A]'
-                    }`}
-                  >
-                    <Bike className="w-3.5 h-3.5" />
-                    <span>Rider Mode</span>
-                  </button>
-                </div>
-              </div>
-            )}
           </div>
 
-          <div className="p-4 rounded-2xl glass-surface space-y-2 text-xs">
-            <div className="flex justify-between py-1 border-b border-[#0F522B]/10">
-              <span className="text-[#55625A]">Registered Vehicle</span>
-              <span className="font-bold text-[#101713] capitalize">
-                {profile.vehicleType} · {profile.plateNumber}
-              </span>
-            </div>
-            <div className="flex justify-between py-1">
-              <span className="text-[#55625A]">Completed Trips</span>
-              <span className="font-bold text-[#0F522B]">{profile.totalRides} rides</span>
-            </div>
-          </div>
-
+          {/* Log Out Button at Bottom of Vertical Menu */}
           <button
             type="button"
             onClick={onLogout}
@@ -367,467 +372,666 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
             <span>Log Out of BYAHERO</span>
           </button>
         </div>
-      )}
-
-      {activeSection === 'favorites' && (
-        <div className="space-y-3.5">
-          <div className="p-4 rounded-2xl glass-green text-white">
-            <div className="text-xs font-bold">Favorites · Always Ordered Destinations</div>
-            <p className="text-[11px] text-emerald-100 mt-0.5">
-              Tap Ride Here on any saved destination to set it on your booking panel immediately.
-            </p>
+      ) : (
+        <div className="space-y-4">
+          {/* Detail View Header with Back to Vertical Settings List Button */}
+          <div className="p-3 rounded-2xl glass-surface flex items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={onBackToMenu}
+              className="h-9 px-3 rounded-xl bg-[#EBF1ED] hover:bg-[#DCE7E0] text-[#0F522B] text-xs font-bold flex items-center gap-1.5 transition-colors shrink-0"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span>All Settings</span>
+            </button>
+            <div className="text-right min-w-0">
+              <div className="text-sm font-extrabold text-[#101713] truncate">
+                {currentSectionMeta.label}
+              </div>
+              <div className="text-[11px] text-[#55625A] truncate">
+                {currentSectionMeta.subtitle}
+              </div>
+            </div>
           </div>
 
-          <form
-            onSubmit={handleAddFavoriteSubmit}
-            className="p-3.5 rounded-2xl glass-surface space-y-2.5"
-          >
-            <div className="text-xs font-bold text-[#101713]">
-              Add Favorite Destination
-            </div>
-            <input
-              type="text"
-              value={newFavLabel}
-              onChange={(e) => setNewFavLabel(e.target.value)}
-              placeholder="Place Name (e.g. SM Seaside City Cebu)"
-              className="w-full h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
-            />
-            <input
-              type="text"
-              value={newFavAddress}
-              onChange={(e) => setNewFavAddress(e.target.value)}
-              placeholder="Street or City Address"
-              className="w-full h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
-            />
-            <button
-              type="submit"
-              className="w-full h-9 rounded-xl bg-[#0F522B] hover:bg-[#146C3A] text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Save to Favorites</span>
-            </button>
-          </form>
-
-          <div className="space-y-2.5">
-            {favorites.map((fav) => (
-              <div
-                key={fav.id}
-                className="p-3.5 rounded-2xl glass-surface flex items-center justify-between gap-2.5"
-              >
-                <div className="flex items-start gap-2.5 min-w-0">
-                  <MapPin className="w-4 h-4 text-[#0F522B] mt-0.5 shrink-0" />
-                  <div className="min-w-0">
-                    <div className="text-xs font-bold text-[#101713] truncate">
-                      {fav.label}
+          {activeSection === 'account' && (
+            <div className="space-y-3.5">
+              <div className="p-4 rounded-2xl glass-green text-white space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-11 h-11 rounded-full bg-white/15 border border-white/25 flex items-center justify-center text-white font-extrabold text-sm shrink-0">
+                      {initials}
                     </div>
-                    <div className="text-[11px] text-[#55625A] truncate">
-                      {fav.address}
-                    </div>
-                    <div className="text-[10px] font-semibold text-[#0F522B] mt-0.5">
-                      Ordered {fav.ordersCount} times
+                    <div className="min-w-0">
+                      <h3 className="text-sm font-bold text-white truncate">
+                        {profile.fullName}
+                      </h3>
+                      <p className="text-xs text-emerald-100 truncate">
+                        {profile.email}
+                      </p>
                     </div>
                   </div>
+                  <button
+                    type="button"
+                    onClick={onOpenAuthModal}
+                    className="px-3 py-1.5 rounded-xl bg-white text-[#0F522B] hover:bg-emerald-50 text-xs font-bold shrink-0"
+                  >
+                    Edit Profile
+                  </button>
                 </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      onSelectFavoriteAsDestination({
-                        label: fav.label,
-                        address: fav.address,
-                        lat: fav.lat,
-                        lng: fav.lng,
-                      })
-                    }
-                    className="h-8 px-3 rounded-xl bg-[#0F522B] hover:bg-[#146C3A] text-white text-[11px] font-bold inline-flex items-center gap-1"
-                  >
-                    <Navigation className="w-3 h-3" />
-                    <span>Ride Here</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onRemoveFavorite(fav.id)}
-                    aria-label="Remove favorite"
-                    className="h-8 w-8 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 flex items-center justify-center"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+
+                <div className="flex items-center gap-2 text-xs text-emerald-100 pt-2 border-t border-white/15">
+                  <ShieldCheck className="w-4 h-4 text-emerald-300 shrink-0" />
+                  <span>
+                    {profile.authProvider === 'google'
+                      ? 'Google Account Connected'
+                      : 'Registered BYAHERO Member'}
+                  </span>
                 </div>
               </div>
-            ))}
-          </div>
-        </div>
-      )}
 
-      {activeSection === 'payments' && (
-        <div className="space-y-3.5">
-          <div className="p-4 rounded-2xl glass-green text-white">
-            <div className="text-xs font-bold">Saved Payment Methods</div>
-            <p className="text-[11px] text-emerald-100 mt-0.5">
-              Choose Cash, connect your GCash account, or register a Credit/Debit Card for seamless booking.
-            </p>
-          </div>
+              <div className="p-4 rounded-2xl glass-surface space-y-3">
+                <div className="text-xs font-bold text-[#0F522B]">
+                  Account Role Configuration
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {([
+                    {id: 'passenger', label: 'Passenger'},
+                    {id: 'rider', label: 'Rider'},
+                    {id: 'both', label: 'Both Roles'},
+                  ] as const).map((r) => {
+                    const active = profile.role === r.id;
+                    return (
+                      <button
+                        key={r.id}
+                        type="button"
+                        onClick={() => onSwitchRole(r.id)}
+                        className={`h-10 px-2 rounded-xl border text-xs font-semibold transition-all whitespace-nowrap ${
+                          active
+                            ? 'bg-[#0F522B] border-[#0F522B] text-white shadow-sm'
+                            : 'bg-white/75 border-[#0F522B]/15 text-[#101713] hover:border-[#0F522B]/40'
+                        }`}
+                      >
+                        {r.label}
+                      </button>
+                    );
+                  })}
+                </div>
 
-          {paymentFeedback && (
-            <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs font-semibold text-[#0F522B] flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 shrink-0" />
-              <span>{paymentFeedback}</span>
+                {profile.role === 'both' && (
+                  <div className="pt-2 border-t border-[#0F522B]/10">
+                    <div className="text-xs text-[#55625A] mb-2">
+                      Active Operating Mode
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => onSwitchActiveMode('passenger')}
+                        className={`h-10 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all whitespace-nowrap ${
+                          profile.activeMode === 'passenger'
+                            ? 'bg-[#0F522B] border-[#0F522B] text-white'
+                            : 'bg-white/75 border-[#0F522B]/15 text-[#101713]'
+                        }`}
+                      >
+                        <User className="w-3.5 h-3.5 shrink-0" />
+                        <span>Passenger Mode</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onSwitchActiveMode('rider')}
+                        className={`h-10 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all whitespace-nowrap ${
+                          profile.activeMode === 'rider'
+                            ? 'bg-[#0F522B] border-[#0F522B] text-white'
+                            : 'bg-white/75 border-[#0F522B]/15 text-[#101713]'
+                        }`}
+                      >
+                        <Bike className="w-3.5 h-3.5 shrink-0" />
+                        <span>Rider Mode</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="p-4 rounded-2xl glass-surface space-y-2.5 text-xs">
+                <div className="flex justify-between py-1.5 border-b border-[#0F522B]/10">
+                  <span className="text-[#55625A]">Registered Vehicle</span>
+                  <span className="text-[#101713] font-semibold capitalize">
+                    {profile.vehicleType} · {profile.plateNumber}
+                  </span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-[#0F522B]/10">
+                  <span className="text-[#55625A]">Completed Trips</span>
+                  <span className="font-mono font-bold text-[#101713]">
+                    {profile.totalRides} rides
+                  </span>
+                </div>
+                <div className="flex justify-between py-1">
+                  <span className="text-[#55625A]">Rider Bonus Tier</span>
+                  <span className="text-[#0F522B] font-bold">
+                    +5% Extra Incentive
+                  </span>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={onLogout}
+                className="w-full h-11 rounded-xl bg-red-50 hover:bg-red-100 border border-red-200 text-red-700 text-xs font-bold flex items-center justify-center gap-2 transition-colors"
+              >
+                <LogOut className="w-4 h-4" />
+                <span>Log Out of BYAHERO</span>
+              </button>
             </div>
           )}
 
-          <div className="space-y-2.5">
-            {paymentMethods.map((method) => {
-              const isSelected = method.id === selectedPaymentId;
-              return (
-                <div
-                  key={method.id}
-                  className={`p-3.5 rounded-2xl border transition-all flex items-center justify-between gap-2.5 ${
-                    isSelected
-                      ? 'bg-[#0F522B]/8 border-[#0F522B]'
-                      : 'glass-surface'
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => onSelectPaymentMethod(method.id)}
-                    className="flex-1 flex items-center gap-3 text-left min-w-0"
-                  >
-                    <div className="w-9 h-9 rounded-xl bg-[#0F522B] text-white flex items-center justify-center shrink-0">
-                      {method.type === 'cash' ? (
-                        <Banknote className="w-4 h-4" />
-                      ) : method.type === 'gcash' ? (
-                        <Smartphone className="w-4 h-4" />
-                      ) : (
-                        <CreditCard className="w-4 h-4" />
-                      )}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-xs font-bold text-[#101713] truncate">
-                        {method.label}
-                      </div>
-                      <div className="text-[11px] text-[#55625A] truncate">
-                        {method.subtitle}
-                      </div>
-                    </div>
-                  </button>
+          {activeSection === 'favorites' && (
+            <div className="space-y-3.5">
+              <div className="p-4 rounded-2xl glass-green text-white space-y-1">
+                <div className="text-xs font-bold">
+                  Favorites · Always Ordered Destinations
+                </div>
+                <p className="text-[11px] text-emerald-100">
+                  Tap any saved destination below to set it immediately for your next ride.
+                </p>
+              </div>
 
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => onSelectPaymentMethod(method.id)}
-                      className={`h-7 px-2.5 rounded-lg text-[10px] font-bold ${
-                        isSelected
-                          ? 'bg-[#0F522B] text-white'
-                          : 'bg-[#EBF1ED] text-[#0F522B]'
-                      }`}
-                    >
-                      {isSelected ? 'Default' : 'Select'}
-                    </button>
-                    {method.type !== 'cash' && (
+              <form
+                onSubmit={handleAddFavoriteSubmit}
+                className="p-3.5 rounded-2xl glass-surface space-y-2.5"
+              >
+                <div className="text-xs font-bold text-[#101713]">
+                  Add Favorite Destination
+                </div>
+                <input
+                  type="text"
+                  value={newFavLabel}
+                  onChange={(e) => setNewFavLabel(e.target.value)}
+                  placeholder="Place Name (e.g. SM Seaside City Cebu)"
+                  className="w-full h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
+                />
+                <input
+                  type="text"
+                  value={newFavAddress}
+                  onChange={(e) => setNewFavAddress(e.target.value)}
+                  placeholder="Street or City Address"
+                  className="w-full h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
+                />
+                <button
+                  type="submit"
+                  className="w-full h-9 rounded-xl bg-[#0F522B] hover:bg-[#146C3A] text-white text-xs font-bold flex items-center justify-center gap-1.5"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Save to Favorites</span>
+                </button>
+              </form>
+
+              <div className="space-y-2">
+                {favorites.map((fav) => (
+                  <div
+                    key={fav.id}
+                    className="p-3 rounded-2xl glass-surface flex items-center justify-between gap-2.5"
+                  >
+                    <div className="flex items-start gap-2.5 min-w-0">
+                      <div className="w-8 h-8 rounded-xl bg-[#EBF1ED] text-[#0F522B] flex items-center justify-center shrink-0 mt-0.5">
+                        <MapPin className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold text-[#101713] truncate">
+                          {fav.label}
+                        </div>
+                        <div className="text-[11px] text-[#55625A] truncate">
+                          {fav.address}
+                        </div>
+                        <div className="text-[10px] font-semibold text-[#0F522B] mt-0.5">
+                          Ordered {fav.ordersCount}x
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
                       <button
                         type="button"
-                        onClick={() => onRemovePaymentMethod(method.id)}
-                        aria-label="Remove payment method"
-                        className="h-7 w-7 rounded-lg bg-red-50 text-red-600 flex items-center justify-center hover:bg-red-100"
+                        onClick={() =>
+                          onSelectFavoriteAsDestination({
+                            label: fav.label,
+                            address: fav.address,
+                            lat: fav.lat,
+                            lng: fav.lng,
+                          })
+                        }
+                        className="h-8 px-2.5 rounded-xl bg-[#0F522B] hover:bg-[#146C3A] text-white text-[11px] font-bold flex items-center gap-1"
+                      >
+                        <Navigation className="w-3 h-3" />
+                        <span>Ride Here</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onRemoveFavorite(fav.id)}
+                        aria-label={`Remove ${fav.label}`}
+                        className="h-8 w-8 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 flex items-center justify-center"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
-                    )}
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="grid grid-cols-2 gap-2.5">
-            <button
-              type="button"
-              onClick={() => {
-                setPaymentFeedback(null);
-                setPaymentModalType(paymentModalType === 'gcash' ? null : 'gcash');
-              }}
-              className="h-10 rounded-xl bg-[#0F522B] hover:bg-[#146C3A] text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors"
-            >
-              <Smartphone className="w-3.5 h-3.5" />
-              <span>Connect GCash</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setPaymentFeedback(null);
-                setPaymentModalType(paymentModalType === 'card' ? null : 'card');
-              }}
-              className="h-10 rounded-xl glass-surface hover:bg-white text-[#0F522B] border border-[#0F522B]/25 text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors"
-            >
-              <CreditCard className="w-3.5 h-3.5" />
-              <span>Register Card</span>
-            </button>
-          </div>
-
-          {paymentModalType === 'gcash' && (
-            <form
-              onSubmit={handleConnectGcash}
-              className="p-4 rounded-2xl glass-surface space-y-2.5"
-            >
-              <div className="text-xs font-bold text-[#0F522B]">
-                Connect GCash Account
+                ))}
               </div>
-              <input
-                type="tel"
-                value={gcashNumber}
-                onChange={(e) => setGcashNumber(e.target.value)}
-                placeholder="GCash Mobile Number (09XX XXX XXXX)"
-                className="w-full h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
-              />
-              <input
-                type="text"
-                value={gcashName}
-                onChange={(e) => setGcashName(e.target.value)}
-                placeholder="Registered GCash Account Name"
-                className="w-full h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
-              />
-              <button
-                type="submit"
-                className="w-full h-9 rounded-xl bg-[#0F522B] hover:bg-[#146C3A] text-white text-xs font-bold"
-              >
-                Save Connected GCash
-              </button>
-            </form>
-          )}
-
-          {paymentModalType === 'card' && (
-            <form
-              onSubmit={handleRegisterCard}
-              className="p-4 rounded-2xl glass-surface space-y-2.5"
-            >
-              <div className="text-xs font-bold text-[#0F522B]">
-                Register Credit or Debit Card
-              </div>
-              <input
-                type="text"
-                value={cardHolder}
-                onChange={(e) => setCardHolder(e.target.value)}
-                placeholder="Cardholder Full Name"
-                className="w-full h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
-              />
-              <input
-                type="text"
-                value={cardNumber}
-                onChange={(e) => setCardNumber(e.target.value)}
-                placeholder="16-Digit Card Number"
-                maxLength={19}
-                className="w-full h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
-              />
-              <div className="grid grid-cols-2 gap-2">
-                <input
-                  type="text"
-                  value={cardExpiry}
-                  onChange={(e) => setCardExpiry(e.target.value)}
-                  placeholder="Expiry MM/YY"
-                  maxLength={5}
-                  className="w-full h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
-                />
-                <input
-                  type="password"
-                  value={cardCvv}
-                  onChange={(e) => setCardCvv(e.target.value)}
-                  placeholder="CVV"
-                  maxLength={4}
-                  className="w-full h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
-                />
-              </div>
-              <button
-                type="submit"
-                className="w-full h-9 rounded-xl bg-[#0F522B] hover:bg-[#146C3A] text-white text-xs font-bold"
-              >
-                Save Registered Card
-              </button>
-            </form>
-          )}
-        </div>
-      )}
-
-      {activeSection === 'promos' && (
-        <div className="space-y-3.5">
-          <form
-            onSubmit={handlePromoSubmit}
-            className="p-3.5 rounded-2xl glass-surface space-y-2.5"
-          >
-            <div className="text-xs font-bold text-[#101713]">Redeem Promo Code</div>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={promoInput}
-                onChange={(e) => setPromoInput(e.target.value)}
-                placeholder="Enter code (e.g. BYAHERO10)"
-                className="flex-1 h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs font-semibold uppercase text-[#101713] focus:outline-none focus:border-[#0F522B]"
-              />
-              <button
-                type="submit"
-                className="px-4 h-9 rounded-xl bg-[#0F522B] hover:bg-[#146C3A] text-white text-xs font-bold"
-              >
-                Apply
-              </button>
             </div>
-            {promoMessage && (
-              <div className="text-[11px] font-semibold text-[#0F522B]">
-                {promoMessage}
-              </div>
-            )}
-          </form>
+          )}
 
-          <div className="space-y-2.5">
-            {promoCodes.map((promo) => {
-              const isApplied = appliedPromoCode === promo.code;
-              return (
-                <div
-                  key={promo.code}
-                  className="p-3.5 rounded-2xl glass-surface flex items-center justify-between gap-3"
+          {activeSection === 'payments' && (
+            <div className="space-y-3.5">
+              <div className="p-4 rounded-2xl glass-green text-white space-y-1">
+                <div className="text-xs font-bold">Saved Payment Methods</div>
+                <p className="text-[11px] text-emerald-100">
+                  Select your default payment method for rides or connect a GCash account or Credit/Debit Card.
+                </p>
+              </div>
+
+              {paymentFeedback && (
+                <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs font-semibold text-[#0F522B]">
+                  {paymentFeedback}
+                </div>
+              )}
+
+              <div className="space-y-2">
+                {paymentMethods.map((method) => {
+                  const isSelected = method.id === selectedPaymentId;
+                  return (
+                    <div
+                      key={method.id}
+                      className={`p-3 rounded-2xl border transition-all flex items-center justify-between gap-2.5 ${
+                        isSelected
+                          ? 'bg-[#0F522B] border-[#0F522B] text-white shadow-sm'
+                          : 'glass-surface text-[#101713]'
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => onSelectPaymentMethod(method.id)}
+                        className="flex-1 flex items-center gap-3 text-left min-w-0"
+                      >
+                        <div
+                          className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                            isSelected
+                              ? 'bg-white/15 text-white'
+                              : 'bg-[#EBF1ED] text-[#0F522B]'
+                          }`}
+                        >
+                          {method.type === 'cash' ? (
+                            <Banknote className="w-4 h-4" />
+                          ) : method.type === 'gcash' ? (
+                            <Smartphone className="w-4 h-4" />
+                          ) : (
+                            <CreditCard className="w-4 h-4" />
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-xs font-bold truncate">
+                            {method.label}
+                          </div>
+                          <div
+                            className={`text-[11px] truncate ${
+                              isSelected ? 'text-emerald-100' : 'text-[#55625A]'
+                            }`}
+                          >
+                            {method.subtitle}
+                          </div>
+                        </div>
+                      </button>
+
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {isSelected && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-white/20 px-2 py-1 rounded-lg">
+                            <CheckCircle2 className="w-3 h-3" />
+                            Active
+                          </span>
+                        )}
+                        {method.type !== 'cash' && (
+                          <button
+                            type="button"
+                            onClick={() => onRemovePaymentMethod(method.id)}
+                            aria-label={`Remove ${method.label}`}
+                            className={`w-8 h-8 rounded-xl flex items-center justify-center ${
+                              isSelected
+                                ? 'bg-white/15 hover:bg-white/25 text-white'
+                                : 'bg-red-50 hover:bg-red-100 text-red-700'
+                            }`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPaymentFeedback(null);
+                    setPaymentModalType((prev) =>
+                      prev === 'gcash' ? null : 'gcash'
+                    );
+                  }}
+                  className="h-10 px-3 rounded-xl bg-[#EBF1ED] hover:bg-[#DCE7E0] text-[#0F522B] text-xs font-bold flex items-center justify-center gap-1.5"
                 >
-                  <div className="min-w-0">
-                    <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-[#EBF1ED] text-[#0F522B] text-[10px] font-extrabold">
-                      <Tag className="w-3 h-3" />
-                      <span>{promo.code}</span>
-                    </div>
-                    <div className="text-xs font-bold text-[#101713] mt-1">
-                      {promo.title}
-                    </div>
-                    <div className="text-[11px] text-[#55625A]">{promo.description}</div>
+                  <Smartphone className="w-4 h-4" />
+                  <span>Connect GCash</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPaymentFeedback(null);
+                    setPaymentModalType((prev) =>
+                      prev === 'card' ? null : 'card'
+                    );
+                  }}
+                  className="h-10 px-3 rounded-xl bg-[#0F522B] hover:bg-[#146C3A] text-white text-xs font-bold flex items-center justify-center gap-1.5"
+                >
+                  <CreditCard className="w-4 h-4" />
+                  <span>Register Card</span>
+                </button>
+              </div>
+
+              {paymentModalType === 'gcash' && (
+                <form
+                  onSubmit={handleConnectGcash}
+                  className="p-3.5 rounded-2xl glass-surface space-y-2.5"
+                >
+                  <div className="text-xs font-bold text-[#0F522B]">
+                    Connect GCash Wallet
+                  </div>
+                  <input
+                    type="tel"
+                    value={gcashNumber}
+                    onChange={(e) => setGcashNumber(e.target.value)}
+                    placeholder="GCash Mobile Number (09XX XXX XXXX)"
+                    className="w-full h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
+                  />
+                  <input
+                    type="text"
+                    value={gcashName}
+                    onChange={(e) => setGcashName(e.target.value)}
+                    placeholder="Account Holder Full Name"
+                    className="w-full h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
+                  />
+                  <button
+                    type="submit"
+                    className="w-full h-9 rounded-xl bg-[#0F522B] hover:bg-[#146C3A] text-white text-xs font-bold"
+                  >
+                    Save & Connect GCash
+                  </button>
+                </form>
+              )}
+
+              {paymentModalType === 'card' && (
+                <form
+                  onSubmit={handleRegisterCard}
+                  className="p-3.5 rounded-2xl glass-surface space-y-2.5"
+                >
+                  <div className="text-xs font-bold text-[#0F522B]">
+                    Register Credit / Debit Card
+                  </div>
+                  <input
+                    type="text"
+                    value={cardHolder}
+                    onChange={(e) => setCardHolder(e.target.value)}
+                    placeholder="Cardholder Name"
+                    className="w-full h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
+                  />
+                  <input
+                    type="text"
+                    value={cardNumber}
+                    onChange={(e) => setCardNumber(e.target.value)}
+                    placeholder="Card Number (16 digits)"
+                    maxLength={19}
+                    className="w-full h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
+                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="text"
+                      value={cardExpiry}
+                      onChange={(e) => setCardExpiry(e.target.value)}
+                      placeholder="MM/YY"
+                      maxLength={5}
+                      className="w-full h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
+                    />
+                    <input
+                      type="password"
+                      value={cardCvv}
+                      onChange={(e) => setCardCvv(e.target.value)}
+                      placeholder="CVV"
+                      maxLength={4}
+                      className="w-full h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
+                    />
                   </div>
                   <button
-                    type="button"
-                    onClick={() => {
-                      onApplyPromoCode(isApplied ? null : promo.code);
-                      setPromoMessage(
-                        isApplied
-                          ? `Removed promo code ${promo.code}.`
-                          : `Promo code ${promo.code} applied to your next booking!`
-                      );
-                    }}
-                    className={`h-8 px-3 rounded-xl text-[11px] font-bold shrink-0 transition-colors ${
-                      isApplied
-                        ? 'bg-[#0F522B] text-white'
-                        : 'bg-[#EBF1ED] hover:bg-[#DCE7E0] text-[#0F522B]'
-                    }`}
+                    type="submit"
+                    className="w-full h-9 rounded-xl bg-[#0F522B] hover:bg-[#146C3A] text-white text-xs font-bold"
                   >
-                    {isApplied ? 'Applied' : 'Use Code'}
+                    Save Registered Card
+                  </button>
+                </form>
+              )}
+            </div>
+          )}
+
+          {activeSection === 'promos' && (
+            <div className="space-y-3.5">
+              <form
+                onSubmit={handlePromoSubmit}
+                className="p-3.5 rounded-2xl glass-surface space-y-2.5"
+              >
+                <div className="text-xs font-bold text-[#101713]">
+                  Redeem Promo Code
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={promoInput}
+                    onChange={(e) => setPromoInput(e.target.value)}
+                    placeholder="Enter code (e.g. BYAHERO10)"
+                    className="flex-1 h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs font-semibold uppercase text-[#101713] focus:outline-none focus:border-[#0F522B]"
+                  />
+                  <button
+                    type="submit"
+                    className="px-4 h-9 rounded-xl bg-[#0F522B] hover:bg-[#146C3A] text-white text-xs font-bold"
+                  >
+                    Apply
                   </button>
                 </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+                {promoMessage && (
+                  <div className="text-[11px] font-semibold text-[#0F522B]">
+                    {promoMessage}
+                  </div>
+                )}
+              </form>
 
-      {activeSection === 'support' && (
-        <div className="space-y-3.5">
-          <div className="p-4 rounded-2xl glass-green text-white space-y-1">
-            <div className="text-xs font-bold">BYAHERO 24/7 Support Service</div>
-            <p className="text-[11px] text-emerald-100">
-              Live dispatch assistance for passengers and partner riders. Hotline: +63 (032) 888-BYAH
-            </p>
-          </div>
-
-          <form
-            onSubmit={handleSupportSubmit}
-            className="p-3.5 rounded-2xl glass-surface space-y-2.5"
-          >
-            <div className="text-xs font-bold text-[#101713]">Submit Support Request</div>
-            <div className="grid grid-cols-2 gap-1.5">
-              {[
-                'Trip & Fare Assistance',
-                'Payment & GCash Inquiry',
-                'Lost Item on Ride',
-                'Rider & Safety Report',
-              ].map((cat) => (
-                <button
-                  key={cat}
-                  type="button"
-                  onClick={() => setSupportCategory(cat)}
-                  className={`h-8 px-2 rounded-lg text-[10px] font-bold truncate transition-colors ${
-                    supportCategory === cat
-                      ? 'bg-[#0F522B] text-white'
-                      : 'bg-[#EBF1ED] text-[#55625A]'
-                  }`}
-                >
-                  {cat}
-                </button>
-              ))}
-            </div>
-            <textarea
-              value={supportMessage}
-              onChange={(e) => setSupportMessage(e.target.value)}
-              rows={3}
-              placeholder="Describe how our support team can help you..."
-              className="w-full p-2.5 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
-            />
-            {ticketSubmittedNotice && (
-              <div className="text-[11px] font-semibold text-[#0F522B]">
-                {ticketSubmittedNotice}
+              <div className="space-y-2.5">
+                {promoCodes.map((promo) => {
+                  const isApplied = appliedPromoCode === promo.code;
+                  return (
+                    <div
+                      key={promo.code}
+                      className="p-3.5 rounded-2xl glass-surface flex items-center justify-between gap-3"
+                    >
+                      <div className="min-w-0">
+                        <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-[#EBF1ED] text-[#0F522B] text-[10px] font-extrabold">
+                          <Tag className="w-3 h-3" />
+                          <span>{promo.code}</span>
+                        </div>
+                        <div className="text-xs font-bold text-[#101713] mt-1">
+                          {promo.title}
+                        </div>
+                        <div className="text-[11px] text-[#55625A]">
+                          {promo.description}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onApplyPromoCode(isApplied ? null : promo.code);
+                          setPromoMessage(
+                            isApplied
+                              ? `Removed promo code ${promo.code}.`
+                              : `Promo code ${promo.code} applied to your next booking!`
+                          );
+                        }}
+                        className={`h-8 px-3 rounded-xl text-[11px] font-bold shrink-0 transition-colors ${
+                          isApplied
+                            ? 'bg-[#0F522B] text-white'
+                            : 'bg-[#EBF1ED] hover:bg-[#DCE7E0] text-[#0F522B]'
+                        }`}
+                      >
+                        {isApplied ? 'Applied' : 'Use Code'}
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
-            )}
-            <button
-              type="submit"
-              className="w-full h-9 rounded-xl bg-[#0F522B] hover:bg-[#146C3A] text-white text-xs font-bold"
-            >
-              Send to Support Team
-            </button>
-          </form>
+            </div>
+          )}
 
-          <div className="space-y-2">
-            <div className="text-xs font-bold text-[#101713]">Recent Support Tickets</div>
-            {tickets.map((t) => (
-              <div key={t.id} className="p-3 rounded-2xl glass-surface space-y-1">
-                <div className="flex items-center justify-between text-[11px]">
-                  <span className="font-bold text-[#0F522B]">
-                    {t.id} · {t.category}
-                  </span>
-                  <span className="text-[#55625A]">{t.createdAt}</span>
+          {activeSection === 'support' && (
+            <div className="space-y-3.5">
+              <div className="p-4 rounded-2xl glass-green text-white space-y-1">
+                <div className="text-xs font-bold">
+                  BYAHERO 24/7 Support Service
                 </div>
-                <p className="text-xs text-[#101713]">{t.message}</p>
+                <p className="text-[11px] text-emerald-100">
+                  Live dispatch assistance for passengers and partner riders. Hotline: +63 (032) 888-BYAH
+                </p>
               </div>
-            ))}
-          </div>
-        </div>
-      )}
 
-      {activeSection === 'about' && (
-        <div className="space-y-3.5">
-          <div className="p-4 rounded-2xl glass-green text-white space-y-2">
-            <div className="flex items-center gap-2.5">
-              <ByaheroWordmarkVector lightSurface={false} className="h-5 w-auto" />
-              <span className="text-xs font-bold text-emerald-200">
-                by HDDEV · v2.6.0 (2026)
-              </span>
-            </div>
-            <p className="text-xs text-emerald-100 leading-relaxed">
-              Dual-role motorcycle and taxi ride-hailing & nearby discovery platform engineered for commuters and partner riders.
-            </p>
-          </div>
+              <form
+                onSubmit={handleSupportSubmit}
+                className="p-3.5 rounded-2xl glass-surface space-y-2.5"
+              >
+                <div className="text-xs font-bold text-[#101713]">
+                  Submit Support Request
+                </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {[
+                    'Trip & Fare Assistance',
+                    'Payment & GCash Inquiry',
+                    'Lost Item on Ride',
+                    'Rider & Safety Report',
+                  ].map((cat) => (
+                    <button
+                      key={cat}
+                      type="button"
+                      onClick={() => setSupportCategory(cat)}
+                      className={`h-8 px-2 rounded-lg text-[10px] font-bold truncate transition-colors ${
+                        supportCategory === cat
+                          ? 'bg-[#0F522B] text-white'
+                          : 'bg-[#EBF1ED] text-[#55625A]'
+                      }`}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+                <textarea
+                  value={supportMessage}
+                  onChange={(e) => setSupportMessage(e.target.value)}
+                  rows={3}
+                  placeholder="Describe how our support team can help you..."
+                  className="w-full p-2.5 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
+                />
+                {ticketSubmittedNotice && (
+                  <div className="text-[11px] font-semibold text-[#0F522B]">
+                    {ticketSubmittedNotice}
+                  </div>
+                )}
+                <button
+                  type="submit"
+                  className="w-full h-9 rounded-xl bg-[#0F522B] hover:bg-[#146C3A] text-white text-xs font-bold"
+                >
+                  Send to Support Team
+                </button>
+              </form>
 
-          <div className="p-4 rounded-2xl glass-surface space-y-2.5 text-xs">
-            <div className="font-bold text-[#101713]">Platform Highlights & Fare Policy</div>
-            <div className="flex justify-between py-1.5 border-b border-[#0F522B]/10">
-              <span className="text-[#55625A]">BYAHERO Moto Base Fare</span>
-              <span className="font-bold text-[#101713]">P40.00 + P12/km</span>
+              <div className="space-y-2">
+                <div className="text-xs font-bold text-[#101713]">
+                  Recent Support Tickets
+                </div>
+                {tickets.map((t) => (
+                  <div
+                    key={t.id}
+                    className="p-3 rounded-2xl glass-surface space-y-1"
+                  >
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="font-bold text-[#0F522B]">
+                        {t.id} · {t.category}
+                      </span>
+                      <span className="text-[#55625A]">{t.createdAt}</span>
+                    </div>
+                    <p className="text-xs text-[#101713]">{t.message}</p>
+                  </div>
+                ))}
+              </div>
             </div>
-            <div className="flex justify-between py-1.5 border-b border-[#0F522B]/10">
-              <span className="text-[#55625A]">BYAHERO Cab Base Fare</span>
-              <span className="font-bold text-[#101713]">P60.00 + P18/km</span>
+          )}
+
+          {activeSection === 'about' && (
+            <div className="space-y-3.5">
+              <div className="p-4 rounded-2xl glass-green text-white space-y-2">
+                <div className="flex items-center gap-2.5">
+                  <ByaheroWordmarkVector
+                    lightSurface={false}
+                    className="h-5 w-auto"
+                  />
+                  <span className="text-xs font-bold text-emerald-200">
+                    by HDDEV · v2.6.0 (2026)
+                  </span>
+                </div>
+                <p className="text-xs text-emerald-100 leading-relaxed">
+                  Dual-role motorcycle and taxi ride-hailing & nearby discovery platform engineered for commuters and partner riders.
+                </p>
+              </div>
+
+              <div className="p-4 rounded-2xl glass-surface space-y-2.5 text-xs">
+                <div className="font-bold text-[#101713]">
+                  Platform Highlights & Fare Policy
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-[#0F522B]/10">
+                  <span className="text-[#55625A]">BYAHERO Moto Base Fare</span>
+                  <span className="font-bold text-[#101713]">
+                    P40.00 + P12/km
+                  </span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-[#0F522B]/10">
+                  <span className="text-[#55625A]">BYAHERO Cab Base Fare</span>
+                  <span className="font-bold text-[#101713]">
+                    P60.00 + P18/km
+                  </span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-[#0F522B]/10">
+                  <span className="text-[#55625A]">
+                    Saturday Passenger Promo
+                  </span>
+                  <span className="font-bold text-[#0F522B]">
+                    10% Off All Rides
+                  </span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-[#0F522B]/10">
+                  <span className="text-[#55625A]">Rider Partner Bonus</span>
+                  <span className="font-bold text-[#0F522B]">
+                    +5% Extra Incentive
+                  </span>
+                </div>
+                <div className="flex justify-between py-1">
+                  <span className="text-[#55625A]">Supported Payments</span>
+                  <span className="font-bold text-[#101713]">
+                    Cash, GCash, Credit/Debit
+                  </span>
+                </div>
+              </div>
             </div>
-            <div className="flex justify-between py-1.5 border-b border-[#0F522B]/10">
-              <span className="text-[#55625A]">Saturday Passenger Promo</span>
-              <span className="font-bold text-[#0F522B]">10% Off All Rides</span>
-            </div>
-            <div className="flex justify-between py-1.5 border-b border-[#0F522B]/10">
-              <span className="text-[#55625A]">Rider Partner Bonus</span>
-              <span className="font-bold text-[#0F522B]">+5% Extra Incentive</span>
-            </div>
-            <div className="flex justify-between py-1">
-              <span className="text-[#55625A]">Supported Payments</span>
-              <span className="font-bold text-[#101713]">Cash, GCash, Credit/Debit</span>
-            </div>
-          </div>
+          )}
         </div>
       )}
     </div>

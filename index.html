@@ -14,15 +14,33 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="BYAHERO" />
-    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
-    <link rel="icon" type="image/png" sizes="192x192" href="/pwa-192x192.png" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+    <link rel="icon" type="image/png" sizes="192x192" href="./pwa-192x192.png" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600&family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   </head>
-  <body class="bg-[#090B0A] text-white antialiased selection:bg-emerald-700 selection:text-white">
+  <body style="margin:0;background-color:#090B0A;color:#FFFFFF;" class="bg-[#090B0A] text-white antialiased selection:bg-emerald-700 selection:text-white">
     <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <script type="module" src="./src/main.tsx"></script>
+    <script>
+      (function () {
+        window.setTimeout(function () {
+          var root = document.getElementById('root');
+          if (root && root.children.length === 0) {
+            var css = document.createElement('link');
+            css.rel = 'stylesheet';
+            css.href = './public/web-bundle/app.css';
+            document.head.appendChild(css);
+
+            var script = document.createElement('script');
+            script.type = 'module';
+            script.src = './public/web-bundle/app.js';
+            document.body.appendChild(script);
+          }
+        }, 350);
+      })();
+    </script>
   </body>
 </html>

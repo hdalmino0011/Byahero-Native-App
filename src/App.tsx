@@ -261,6 +261,8 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<AppTab>('ride');
   const [settingsSection, setSettingsSection] =
     useState<SettingsSection>('account');
+  const [settingsShowMenuList, setSettingsShowMenuList] =
+    useState<boolean>(true);
 
   const [userLocation, setUserLocation] = useState<LatLngPoint>(DEFAULT_CENTER);
   const [pickup, setPickup] = useState<LocationStop | null>({
@@ -984,6 +986,7 @@ export default function App() {
           type="button"
           onClick={() => {
             setSettingsSection('account');
+            setSettingsShowMenuList(false);
             setActiveTab('settings');
             setMobileMapExpanded(false);
           }}
@@ -996,7 +999,9 @@ export default function App() {
 
       <aside
         className={`order-2 ${
-          mobilePreviewFrame
+          activeTab === 'settings'
+            ? 'w-full flex-1 h-full flex flex-col bg-white/70 backdrop-blur-2xl z-20'
+            : mobilePreviewFrame
             ? 'w-full flex-none flex flex-col bg-white/70 backdrop-blur-2xl border-t border-white z-20'
             : 'lg:order-1 lg:w-[440px] xl:w-[470px] lg:h-full lg:border-r lg:border-t-0 lg:flex-none flex flex-col bg-white/70 backdrop-blur-2xl border-t border-white z-20'
         }`}
@@ -1030,6 +1035,7 @@ export default function App() {
               type="button"
               onClick={() => {
                 setSettingsSection('account');
+                setSettingsShowMenuList(false);
                 setActiveTab('settings');
               }}
               title={profile.fullName}
@@ -1041,8 +1047,12 @@ export default function App() {
         </div>
 
         <div
-          className={`flex items-center justify-between px-4 py-2 border-b border-[#0F522B]/10 ${
-            mobilePreviewFrame ? '' : 'lg:hidden'
+          className={`${
+            activeTab === 'settings'
+              ? 'hidden'
+              : `flex items-center justify-between px-4 py-2 border-b border-[#0F522B]/10 ${
+                  mobilePreviewFrame ? '' : 'lg:hidden'
+                }`
           }`}
         >
           <span className="text-xs font-bold text-[#0F522B]">
@@ -1079,7 +1089,9 @@ export default function App() {
           aria-label="Primary navigation"
           className={`hidden ${
             mobilePreviewFrame ? '' : 'lg:grid'
-          } grid-cols-5 gap-1 p-1.5 mx-4 mt-3 rounded-2xl bg-[#EBF1ED]/90 border border-[#0F522B]/10 shrink-0`}
+          } grid-cols-5 gap-1 p-1.5 mx-4 mt-3 rounded-2xl bg-[#EBF1ED]/90 border border-[#0F522B]/10 shrink-0 ${
+            activeTab === 'settings' ? 'max-w-2xl w-full lg:mx-auto' : ''
+          }`}
         >
           {([
             {id: 'ride', label: 'Ride', icon: Navigation},
@@ -1094,7 +1106,12 @@ export default function App() {
               <button
                 key={tab.id}
                 type="button"
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => {
+                  setActiveTab(tab.id);
+                  if (tab.id === 'settings') {
+                    setSettingsShowMenuList(true);
+                  }
+                }}
                 className={`h-10 rounded-xl text-[11px] font-bold flex items-center justify-center gap-1 transition-all whitespace-nowrap ${
                   active
                     ? 'bg-[#0F522B] text-white shadow-sm'
@@ -1110,7 +1127,9 @@ export default function App() {
 
         <div
           className={`overflow-y-auto px-4 py-4 transition-all ${
-            mobileMapExpanded
+            activeTab === 'settings'
+              ? 'flex-1 min-h-0'
+              : mobileMapExpanded
               ? 'hidden'
               : mobilePreviewFrame
               ? 'h-[350px]'
@@ -1139,6 +1158,7 @@ export default function App() {
               onAddFavoriteDestination={handleAddFavoriteDestination}
               onOpenSettingsSection={(sec) => {
                 setSettingsSection(sec);
+                setSettingsShowMenuList(false);
                 setActiveTab('settings');
               }}
               onSetPickup={trySetPickup}
@@ -1199,12 +1219,17 @@ export default function App() {
             <SettingsPanel
               profile={profile}
               activeSection={settingsSection}
+              showMenuList={settingsShowMenuList}
               favorites={favorites}
               paymentMethods={paymentMethods}
               selectedPaymentId={selectedPaymentId}
               promoCodes={AVAILABLE_PROMO_CODES}
               appliedPromoCode={appliedPromoCode}
-              onSelectSection={setSettingsSection}
+              onSelectSection={(sec) => {
+                setSettingsSection(sec);
+                setSettingsShowMenuList(false);
+              }}
+              onBackToMenu={() => setSettingsShowMenuList(true)}
               onOpenAuthModal={() => setAuthModalOpen(true)}
               onSwitchRole={handleSwitchRole}
               onSwitchActiveMode={handleSwitchActiveMode}
@@ -1256,6 +1281,9 @@ export default function App() {
                   type="button"
                   onClick={() => {
                     setActiveTab(tab.id);
+                    if (tab.id === 'settings') {
+                      setSettingsShowMenuList(true);
+                    }
                     setMobileMapExpanded(false);
                   }}
                   className={`h-10 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-all ${
@@ -1277,7 +1305,11 @@ export default function App() {
 
       <main
         className={`order-1 flex-1 min-h-0 relative ${
-          mobilePreviewFrame ? 'w-full' : 'lg:order-2 lg:h-full'
+          activeTab === 'settings'
+            ? 'hidden'
+            : mobilePreviewFrame
+            ? 'w-full'
+            : 'lg:order-2 lg:h-full'
         }`}
       >
         {locationError && (
