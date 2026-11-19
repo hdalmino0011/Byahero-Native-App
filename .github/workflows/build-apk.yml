@@ -3,8 +3,6 @@ name: Build BYAHERO Android APK & Deploy Web App
 on:
   push:
     branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
   workflow_dispatch:
 
 permissions:
@@ -20,14 +18,17 @@ jobs:
   build-web:
     name: Build & Deploy Web App to GitHub Pages
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Node.js 20
+      - name: Set up Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Install dependencies
         run: npm install --no-audit --no-fund
@@ -43,14 +44,12 @@ jobs:
           touch dist/.nojekyll
 
       - name: Upload Pages artifact
-        if: github.event_name != 'pull_request'
         continue-on-error: true
         uses: actions/upload-pages-artifact@v3
         with:
           path: ./dist
 
       - name: Deploy to GitHub Pages
-        if: github.event_name != 'pull_request'
         id: deployment
         continue-on-error: true
         uses: actions/deploy-pages@v4
