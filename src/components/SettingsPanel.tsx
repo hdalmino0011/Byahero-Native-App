@@ -1,4 +1,5 @@
 import React, {useState} from 'react';
+import {AnimatePresence, motion} from 'motion/react';
 import {
   ArrowLeft,
   Banknote,
@@ -20,6 +21,7 @@ import {
   User,
 } from 'lucide-react';
 import {ByaheroWordmarkVector} from './VectorGraphics';
+import {LoadingSpinner} from './LoadingSpinner';
 import {
   ActiveMode,
   FavoriteDestination,
@@ -110,6 +112,10 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   const [ticketSubmittedNotice, setTicketSubmittedNotice] = useState<string | null>(
     null
   );
+  const [isSavingFavorite, setIsSavingFavorite] = useState(false);
+  const [isSavingPayment, setIsSavingPayment] = useState(false);
+  const [isApplyingPromo, setIsApplyingPromo] = useState(false);
+  const [isSubmittingTicket, setIsSubmittingTicket] = useState(false);
 
   const activePayment =
     paymentMethods.find((m) => m.id === selectedPaymentId) || paymentMethods[0];
@@ -169,23 +175,29 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
 
   const handleAddFavoriteSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSavingFavorite) return;
     const label = newFavLabel.trim();
     if (!label) return;
     const address = newFavAddress.trim() || `${label}, Metro Area`;
-    onAddFavorite({
-      id: `fav_${Date.now()}`,
-      label,
-      address,
-      lat: 10.3181 + (Math.random() - 0.5) * 0.02,
-      lng: 123.9049 + (Math.random() - 0.5) * 0.02,
-      ordersCount: 1,
-    });
-    setNewFavLabel('');
-    setNewFavAddress('');
+    setIsSavingFavorite(true);
+    window.setTimeout(() => {
+      onAddFavorite({
+        id: `fav_${Date.now()}`,
+        label,
+        address,
+        lat: 10.3181 + (Math.random() - 0.5) * 0.02,
+        lng: 123.9049 + (Math.random() - 0.5) * 0.02,
+        ordersCount: 1,
+      });
+      setNewFavLabel('');
+      setNewFavAddress('');
+      setIsSavingFavorite(false);
+    }, 240);
   };
 
   const handleConnectGcash = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSavingPayment) return;
     const digits = gcashNumber.replace(/\D/g, '');
     if (digits.length < 10) {
       setPaymentFeedback('Please enter a valid 11-digit GCash mobile number.');
@@ -193,23 +205,28 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
     }
     const cleanName = gcashName.trim() || profile.fullName;
     const last4 = digits.slice(-4);
-    onSavePaymentMethod({
-      id: `pm_gcash_${Date.now()}`,
-      type: 'gcash',
-      label: `GCash (•••• ${last4})`,
-      subtitle: `${cleanName} · Connected GCash`,
-      accountNumberOrLast4: last4,
-      holderName: cleanName,
-      isDefault: true,
-    });
-    setGcashNumber('');
-    setGcashName('');
-    setPaymentModalType(null);
-    setPaymentFeedback('GCash account connected and saved as default payment.');
+    setIsSavingPayment(true);
+    window.setTimeout(() => {
+      onSavePaymentMethod({
+        id: `pm_gcash_${Date.now()}`,
+        type: 'gcash',
+        label: `GCash (•••• ${last4})`,
+        subtitle: `${cleanName} · Connected GCash`,
+        accountNumberOrLast4: last4,
+        holderName: cleanName,
+        isDefault: true,
+      });
+      setGcashNumber('');
+      setGcashName('');
+      setPaymentModalType(null);
+      setIsSavingPayment(false);
+      setPaymentFeedback('GCash account connected and saved as default payment.');
+    }, 280);
   };
 
   const handleRegisterCard = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSavingPayment) return;
     const digits = cardNumber.replace(/\D/g, '');
     if (digits.length < 12) {
       setPaymentFeedback('Please enter a valid 16-digit card number.');
@@ -226,54 +243,69 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
       : digits.startsWith('5')
       ? 'Mastercard'
       : 'Card';
-    onSavePaymentMethod({
-      id: `pm_card_${Date.now()}`,
-      type: 'card',
-      label: `${brand} •••• ${last4}`,
-      subtitle: `${cleanHolder} · Exp ${cardExpiry.trim()}`,
-      accountNumberOrLast4: last4,
-      holderName: cleanHolder,
-      expiry: cardExpiry.trim(),
-      isDefault: true,
-    });
-    setCardHolder('');
-    setCardNumber('');
-    setCardExpiry('');
-    setCardCvv('');
-    setPaymentModalType(null);
-    setPaymentFeedback(`${brand} ending in ${last4} registered and saved.`);
+    const exp = cardExpiry.trim();
+    setIsSavingPayment(true);
+    window.setTimeout(() => {
+      onSavePaymentMethod({
+        id: `pm_card_${Date.now()}`,
+        type: 'card',
+        label: `${brand} •••• ${last4}`,
+        subtitle: `${cleanHolder} · Exp ${exp}`,
+        accountNumberOrLast4: last4,
+        holderName: cleanHolder,
+        expiry: exp,
+        isDefault: true,
+      });
+      setCardHolder('');
+      setCardNumber('');
+      setCardExpiry('');
+      setCardCvv('');
+      setPaymentModalType(null);
+      setIsSavingPayment(false);
+      setPaymentFeedback(`${brand} ending in ${last4} registered and saved.`);
+    }, 280);
   };
 
   const handlePromoSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isApplyingPromo) return;
     const clean = promoInput.trim().toUpperCase();
     if (!clean) return;
-    const found = promoCodes.find((p) => p.code.toUpperCase() === clean);
-    if (found) {
-      onApplyPromoCode(found.code);
-      setPromoMessage(`Promo code ${found.code} (${found.title}) applied!`);
-      setPromoInput('');
-    } else {
-      setPromoMessage(`Code "${clean}" is not valid. Try BYAHERO10 or SATPROMO.`);
-    }
+    setIsApplyingPromo(true);
+    window.setTimeout(() => {
+      const found = promoCodes.find((p) => p.code.toUpperCase() === clean);
+      if (found) {
+        onApplyPromoCode(found.code);
+        setPromoMessage(`Promo code ${found.code} (${found.title}) applied!`);
+        setPromoInput('');
+      } else {
+        setPromoMessage(`Code "${clean}" is not valid. Try BYAHERO10 or SATPROMO.`);
+      }
+      setIsApplyingPromo(false);
+    }, 220);
   };
 
   const handleSupportSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingTicket) return;
     const msg = supportMessage.trim();
     if (!msg) return;
-    const newTicket: SupportTicket = {
-      id: `TKT-${Math.floor(3000 + Math.random() * 6000)}`,
-      category: supportCategory,
-      message: msg,
-      status: 'open',
-      createdAt: 'Just now',
-    };
-    setTickets((prev) => [newTicket, ...prev]);
-    setSupportMessage('');
-    setTicketSubmittedNotice(
-      `Support ticket ${newTicket.id} submitted. Our 24/7 dispatch support team will assist you shortly.`
-    );
+    setIsSubmittingTicket(true);
+    window.setTimeout(() => {
+      const newTicket: SupportTicket = {
+        id: `TKT-${Math.floor(3000 + Math.random() * 6000)}`,
+        category: supportCategory,
+        message: msg,
+        status: 'open',
+        createdAt: 'Just now',
+      };
+      setTickets((prev) => [newTicket, ...prev]);
+      setSupportMessage('');
+      setIsSubmittingTicket(false);
+      setTicketSubmittedNotice(
+        `Support ticket ${newTicket.id} submitted. Our 24/7 dispatch support team will assist you shortly.`
+      );
+    }, 280);
   };
 
   const initials = profile.fullName
@@ -284,9 +316,17 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
     .toUpperCase();
 
   return (
-    <div className="w-full max-w-2xl mx-auto space-y-4 pb-6">
+    <div className="w-full max-w-2xl mx-auto pb-6">
+      <AnimatePresence mode="wait" initial={false}>
       {showMenuList ? (
-        <div className="space-y-4">
+        <motion.div
+          key="settings-menu"
+          initial={{opacity: 0, x: -16}}
+          animate={{opacity: 1, x: 0}}
+          exit={{opacity: 0, x: -16}}
+          transition={{duration: 0.2, ease: [0.16, 1, 0.3, 1]}}
+          className="space-y-4"
+        >
           {/* Top Profile Summary Banner */}
           <div className="p-4 rounded-2xl glass-green text-white flex items-center justify-between gap-3 shadow-md">
             <div className="flex items-center gap-3.5 min-w-0">
@@ -371,9 +411,16 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
             <LogOut className="w-4 h-4" />
             <span>Log Out of BYAHERO</span>
           </button>
-        </div>
+        </motion.div>
       ) : (
-        <div className="space-y-4">
+        <motion.div
+          key={`settings-detail-${activeSection}`}
+          initial={{opacity: 0, x: 16}}
+          animate={{opacity: 1, x: 0}}
+          exit={{opacity: 0, x: 16}}
+          transition={{duration: 0.2, ease: [0.16, 1, 0.3, 1]}}
+          className="space-y-4"
+        >
           {/* Detail View Header with Back to Vertical Settings List Button */}
           <div className="p-3 rounded-2xl glass-surface flex items-center justify-between gap-3">
             <button
@@ -559,10 +606,20 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                 />
                 <button
                   type="submit"
-                  className="w-full h-9 rounded-xl bg-[#0F522B] hover:bg-[#146C3A] text-white text-xs font-bold flex items-center justify-center gap-1.5"
+                  disabled={isSavingFavorite}
+                  className="w-full h-9 rounded-xl bg-[#0F522B] hover:bg-[#146C3A] disabled:opacity-75 text-white text-xs font-bold flex items-center justify-center gap-1.5 smooth-press"
                 >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Save to Favorites</span>
+                  {isSavingFavorite ? (
+                    <>
+                      <LoadingSpinner size="xs" tone="white" />
+                      <span>Saving Favorite...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Save to Favorites</span>
+                    </>
+                  )}
                 </button>
               </form>
 
@@ -736,86 +793,114 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                 </button>
               </div>
 
-              {paymentModalType === 'gcash' && (
-                <form
-                  onSubmit={handleConnectGcash}
-                  className="p-3.5 rounded-2xl glass-surface space-y-2.5"
-                >
-                  <div className="text-xs font-bold text-[#0F522B]">
-                    Connect GCash Wallet
-                  </div>
-                  <input
-                    type="tel"
-                    value={gcashNumber}
-                    onChange={(e) => setGcashNumber(e.target.value)}
-                    placeholder="GCash Mobile Number (09XX XXX XXXX)"
-                    className="w-full h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
-                  />
-                  <input
-                    type="text"
-                    value={gcashName}
-                    onChange={(e) => setGcashName(e.target.value)}
-                    placeholder="Account Holder Full Name"
-                    className="w-full h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
-                  />
-                  <button
-                    type="submit"
-                    className="w-full h-9 rounded-xl bg-[#0F522B] hover:bg-[#146C3A] text-white text-xs font-bold"
+              <AnimatePresence mode="wait">
+                {paymentModalType === 'gcash' && (
+                  <motion.form
+                    key="gcash-form"
+                    initial={{opacity: 0, y: 6}}
+                    animate={{opacity: 1, y: 0}}
+                    exit={{opacity: 0, y: 6}}
+                    transition={{duration: 0.18}}
+                    onSubmit={handleConnectGcash}
+                    className="p-3.5 rounded-2xl glass-surface space-y-2.5"
                   >
-                    Save & Connect GCash
-                  </button>
-                </form>
-              )}
-
-              {paymentModalType === 'card' && (
-                <form
-                  onSubmit={handleRegisterCard}
-                  className="p-3.5 rounded-2xl glass-surface space-y-2.5"
-                >
-                  <div className="text-xs font-bold text-[#0F522B]">
-                    Register Credit / Debit Card
-                  </div>
-                  <input
-                    type="text"
-                    value={cardHolder}
-                    onChange={(e) => setCardHolder(e.target.value)}
-                    placeholder="Cardholder Name"
-                    className="w-full h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
-                  />
-                  <input
-                    type="text"
-                    value={cardNumber}
-                    onChange={(e) => setCardNumber(e.target.value)}
-                    placeholder="Card Number (16 digits)"
-                    maxLength={19}
-                    className="w-full h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
-                  />
-                  <div className="grid grid-cols-2 gap-2">
+                    <div className="text-xs font-bold text-[#0F522B]">
+                      Connect GCash Wallet
+                    </div>
+                    <input
+                      type="tel"
+                      value={gcashNumber}
+                      onChange={(e) => setGcashNumber(e.target.value)}
+                      placeholder="GCash Mobile Number (09XX XXX XXXX)"
+                      className="w-full h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
+                    />
                     <input
                       type="text"
-                      value={cardExpiry}
-                      onChange={(e) => setCardExpiry(e.target.value)}
-                      placeholder="MM/YY"
-                      maxLength={5}
+                      value={gcashName}
+                      onChange={(e) => setGcashName(e.target.value)}
+                      placeholder="Account Holder Full Name"
+                      className="w-full h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
+                    />
+                    <button
+                      type="submit"
+                      disabled={isSavingPayment}
+                      className="w-full h-9 rounded-xl bg-[#0F522B] hover:bg-[#146C3A] disabled:opacity-75 text-white text-xs font-bold flex items-center justify-center gap-1.5 smooth-press"
+                    >
+                      {isSavingPayment ? (
+                        <>
+                          <LoadingSpinner size="xs" tone="white" />
+                          <span>Connecting GCash...</span>
+                        </>
+                      ) : (
+                        <span>Save & Connect GCash</span>
+                      )}
+                    </button>
+                  </motion.form>
+                )}
+
+                {paymentModalType === 'card' && (
+                  <motion.form
+                    key="card-form"
+                    initial={{opacity: 0, y: 6}}
+                    animate={{opacity: 1, y: 0}}
+                    exit={{opacity: 0, y: 6}}
+                    transition={{duration: 0.18}}
+                    onSubmit={handleRegisterCard}
+                    className="p-3.5 rounded-2xl glass-surface space-y-2.5"
+                  >
+                    <div className="text-xs font-bold text-[#0F522B]">
+                      Register Credit / Debit Card
+                    </div>
+                    <input
+                      type="text"
+                      value={cardHolder}
+                      onChange={(e) => setCardHolder(e.target.value)}
+                      placeholder="Cardholder Name"
                       className="w-full h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
                     />
                     <input
-                      type="password"
-                      value={cardCvv}
-                      onChange={(e) => setCardCvv(e.target.value)}
-                      placeholder="CVV"
-                      maxLength={4}
+                      type="text"
+                      value={cardNumber}
+                      onChange={(e) => setCardNumber(e.target.value)}
+                      placeholder="Card Number (16 digits)"
+                      maxLength={19}
                       className="w-full h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
                     />
-                  </div>
-                  <button
-                    type="submit"
-                    className="w-full h-9 rounded-xl bg-[#0F522B] hover:bg-[#146C3A] text-white text-xs font-bold"
-                  >
-                    Save Registered Card
-                  </button>
-                </form>
-              )}
+                    <div className="grid grid-cols-2 gap-2">
+                      <input
+                        type="text"
+                        value={cardExpiry}
+                        onChange={(e) => setCardExpiry(e.target.value)}
+                        placeholder="MM/YY"
+                        maxLength={5}
+                        className="w-full h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
+                      />
+                      <input
+                        type="password"
+                        value={cardCvv}
+                        onChange={(e) => setCardCvv(e.target.value)}
+                        placeholder="CVV"
+                        maxLength={4}
+                        className="w-full h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={isSavingPayment}
+                      className="w-full h-9 rounded-xl bg-[#0F522B] hover:bg-[#146C3A] disabled:opacity-75 text-white text-xs font-bold flex items-center justify-center gap-1.5 smooth-press"
+                    >
+                      {isSavingPayment ? (
+                        <>
+                          <LoadingSpinner size="xs" tone="white" />
+                          <span>Registering Card...</span>
+                        </>
+                      ) : (
+                        <span>Save Registered Card</span>
+                      )}
+                    </button>
+                  </motion.form>
+                )}
+              </AnimatePresence>
             </div>
           )}
 
@@ -838,9 +923,14 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                   />
                   <button
                     type="submit"
-                    className="px-4 h-9 rounded-xl bg-[#0F522B] hover:bg-[#146C3A] text-white text-xs font-bold"
+                    disabled={isApplyingPromo}
+                    className="px-4 h-9 rounded-xl bg-[#0F522B] hover:bg-[#146C3A] disabled:opacity-75 text-white text-xs font-bold flex items-center justify-center gap-1.5 smooth-press"
                   >
-                    Apply
+                    {isApplyingPromo ? (
+                      <LoadingSpinner size="xs" tone="white" />
+                    ) : (
+                      <span>Apply</span>
+                    )}
                   </button>
                 </div>
                 {promoMessage && (
@@ -948,9 +1038,17 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                 )}
                 <button
                   type="submit"
-                  className="w-full h-9 rounded-xl bg-[#0F522B] hover:bg-[#146C3A] text-white text-xs font-bold"
+                  disabled={isSubmittingTicket}
+                  className="w-full h-9 rounded-xl bg-[#0F522B] hover:bg-[#146C3A] disabled:opacity-75 text-white text-xs font-bold flex items-center justify-center gap-1.5 smooth-press"
                 >
-                  Send to Support Team
+                  {isSubmittingTicket ? (
+                    <>
+                      <LoadingSpinner size="xs" tone="white" />
+                      <span>Sending Ticket...</span>
+                    </>
+                  ) : (
+                    <span>Send to Support Team</span>
+                  )}
                 </button>
               </form>
 
@@ -1032,8 +1130,9 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
               </div>
             </div>
           )}
-        </div>
+        </motion.div>
       )}
+      </AnimatePresence>
     </div>
   );
 };

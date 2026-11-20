@@ -1,7 +1,9 @@
 import React from 'react';
 import {ExternalLink, MapPin, Navigation, Star} from 'lucide-react';
+import {motion} from 'motion/react';
 import {DiscoveredPlace} from '../types/byahero';
 import {FastFoodVectorIcon, ResortBeachVectorIcon} from './VectorGraphics';
+import {LoadingSpinner} from './LoadingSpinner';
 
 interface ExploreNearbyPanelProps {
   places: DiscoveredPlace[];
@@ -28,12 +30,12 @@ export const ExploreNearbyPanel: React.FC<ExploreNearbyPanelProps> = ({
 }) => {
   return (
     <div className="space-y-4">
-      {/* Category Discovery Cards */}
       <div className="grid grid-cols-2 gap-2.5">
         <button
           type="button"
+          disabled={isLoading}
           onClick={() => onDiscoverCategory('fast_food')}
-          className="min-h-[72px] p-3.5 rounded-2xl glass-surface hover:border-[#0F522B] text-left transition-all flex flex-col justify-between"
+          className="min-h-[72px] p-3.5 rounded-2xl glass-surface hover:border-[#0F522B] text-left smooth-press flex flex-col justify-between disabled:opacity-70"
         >
           <FastFoodVectorIcon className="w-5 h-5 text-amber-600" />
           <div className="mt-2">
@@ -46,8 +48,9 @@ export const ExploreNearbyPanel: React.FC<ExploreNearbyPanelProps> = ({
 
         <button
           type="button"
+          disabled={isLoading}
           onClick={() => onDiscoverCategory('resort_beach')}
-          className="min-h-[72px] p-3.5 rounded-2xl glass-surface hover:border-[#0F522B] text-left transition-all flex flex-col justify-between"
+          className="min-h-[72px] p-3.5 rounded-2xl glass-surface hover:border-[#0F522B] text-left smooth-press flex flex-col justify-between disabled:opacity-70"
         >
           <ResortBeachVectorIcon className="w-5 h-5 text-[#0F522B]" />
           <div className="mt-2">
@@ -59,12 +62,15 @@ export const ExploreNearbyPanel: React.FC<ExploreNearbyPanelProps> = ({
         </button>
       </div>
 
-      {/* Results Header Banner */}
       <div className="flex items-center justify-between px-4 py-2.5 rounded-2xl glass-green text-white text-xs">
         <span className="font-bold">{categoryLabel}</span>
-        <span className="text-white/85 tabular-nums font-medium">
-          {isLoading ? 'Searching...' : `${places.length} found`}
-        </span>
+        {isLoading ? (
+          <LoadingSpinner size="xs" tone="white" label="Searching..." />
+        ) : (
+          <span className="text-white/85 tabular-nums font-medium">
+            {places.length} found
+          </span>
+        )}
       </div>
 
       {error && (
@@ -74,13 +80,11 @@ export const ExploreNearbyPanel: React.FC<ExploreNearbyPanelProps> = ({
       )}
 
       {isLoading && (
-        <div className="space-y-2.5">
-          {[1, 2, 3].map((n) => (
-            <div
-              key={n}
-              className="h-20 rounded-2xl glass-surface animate-pulse"
-            />
-          ))}
+        <div className="py-8 px-4 rounded-2xl glass-surface flex flex-col items-center justify-center gap-3">
+          <LoadingSpinner size="lg" tone="green" />
+          <div className="text-xs font-semibold text-[#0F522B]">
+            Finding nearby spots on Google Maps...
+          </div>
         </div>
       )}
 
@@ -95,95 +99,103 @@ export const ExploreNearbyPanel: React.FC<ExploreNearbyPanelProps> = ({
         </div>
       )}
 
-      {/* Places List */}
-      <div className="space-y-2.5">
-        {places.map((place) => {
-          const isSelected = place.id === selectedPlaceId;
-          return (
-            <div
-              key={place.id}
-              className={`p-3.5 rounded-2xl border transition-all ${
-                isSelected
-                  ? 'bg-white border-[#0F522B] shadow-md'
-                  : 'glass-surface'
-              }`}
-            >
-              <div className="flex items-start justify-between gap-2">
-                <button
-                  type="button"
-                  onClick={() => onSelectPlace(place)}
-                  className="text-left flex-1 min-w-0"
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-bold text-[#101713] truncate">
-                      {place.name}
-                    </span>
-                    {place.brandTag && (
-                      <span className="text-[11px] font-semibold text-[#0F522B] shrink-0">
-                        · {place.brandTag}
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-[#55625A] truncate mt-0.5">{place.address}</p>
-                  <div className="flex items-center gap-3 mt-1.5 text-[11px] text-[#55625A] tabular-nums">
-                    {place.rating !== undefined && (
-                      <span className="inline-flex items-center gap-1 font-medium text-[#101713]">
-                        <Star className="w-3 h-3 fill-amber-400 text-amber-500" />
-                        {place.rating.toFixed(1)}
-                        {place.userRatingCount ? ` (${place.userRatingCount})` : ''}
-                      </span>
-                    )}
-                    {place.distanceKm !== undefined && (
-                      <span className="inline-flex items-center gap-1 text-[#0F522B] font-semibold">
-                        <MapPin className="w-3 h-3" />
-                        {place.distanceKm.toFixed(2)} km
-                      </span>
-                    )}
-                  </div>
-                </button>
-
-                {place.googleMapsUri && (
-                  <a
-                    href={place.googleMapsUri}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    title="Open in Google Maps"
-                    aria-label={`Open ${place.name} in Google Maps`}
-                    className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl bg-[#EBF1ED] hover:bg-[#DCE7E0] text-[#0F522B] shrink-0"
+      {!isLoading && (
+        <div className="space-y-2.5">
+          {places.map((place, index) => {
+            const isSelected = place.id === selectedPlaceId;
+            return (
+              <motion.div
+                key={place.id}
+                initial={{opacity: 0, y: 8}}
+                animate={{opacity: 1, y: 0}}
+                transition={{
+                  duration: 0.2,
+                  delay: Math.min(index * 0.035, 0.25),
+                  ease: [0.16, 1, 0.3, 1],
+                }}
+                className={`p-3.5 rounded-2xl border transition-all ${
+                  isSelected
+                    ? 'bg-white border-[#0F522B] shadow-md'
+                    : 'glass-surface'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onSelectPlace(place)}
+                    className="text-left flex-1 min-w-0"
                   >
-                    <ExternalLink className="w-4 h-4" />
-                  </a>
-                )}
-              </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-bold text-[#101713] truncate">
+                        {place.name}
+                      </span>
+                      {place.brandTag && (
+                        <span className="text-[11px] font-semibold text-[#0F522B] shrink-0">
+                          · {place.brandTag}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-[#55625A] truncate mt-0.5">{place.address}</p>
+                    <div className="flex items-center gap-3 mt-1.5 text-[11px] text-[#55625A] tabular-nums">
+                      {place.rating !== undefined && (
+                        <span className="inline-flex items-center gap-1 font-medium text-[#101713]">
+                          <Star className="w-3 h-3 fill-amber-400 text-amber-500" />
+                          {place.rating.toFixed(1)}
+                          {place.userRatingCount ? ` (${place.userRatingCount})` : ''}
+                        </span>
+                      )}
+                      {place.distanceKm !== undefined && (
+                        <span className="inline-flex items-center gap-1 text-[#0F522B] font-semibold">
+                          <MapPin className="w-3 h-3" />
+                          {place.distanceKm.toFixed(2)} km
+                        </span>
+                      )}
+                    </div>
+                  </button>
 
-              <div className="mt-3 flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => onSelectPlace(place)}
-                  className="h-10 px-3 rounded-xl bg-[#EBF1ED] hover:bg-[#DCE7E0] text-xs font-semibold text-[#101713] transition-colors"
-                >
-                  Map
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onBookRideAsPickup(place)}
-                  className="flex-1 h-10 rounded-xl bg-white border border-[#0F522B]/25 hover:border-[#0F522B] text-xs font-bold text-[#0F522B] transition-colors"
-                >
-                  Set Pickup
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onBookRideToPlace(place)}
-                  className="flex-1 h-10 rounded-xl bg-[#0F522B] hover:bg-[#146C3A] text-xs font-bold text-white inline-flex items-center justify-center gap-1.5 shadow-sm transition-colors"
-                >
-                  <Navigation className="w-3.5 h-3.5" />
-                  <span>Ride Here</span>
-                </button>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+                  {place.googleMapsUri && (
+                    <a
+                      href={place.googleMapsUri}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="Open in Google Maps"
+                      aria-label={`Open ${place.name} in Google Maps`}
+                      className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl bg-[#EBF1ED] hover:bg-[#DCE7E0] text-[#0F522B] shrink-0 smooth-press"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                    </a>
+                  )}
+                </div>
+
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onSelectPlace(place)}
+                    className="h-10 px-3 rounded-xl bg-[#EBF1ED] hover:bg-[#DCE7E0] text-xs font-semibold text-[#101713] smooth-press"
+                  >
+                    Map
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onBookRideAsPickup(place)}
+                    className="flex-1 h-10 rounded-xl bg-white border border-[#0F522B]/25 hover:border-[#0F522B] text-xs font-bold text-[#0F522B] smooth-press"
+                  >
+                    Set Pickup
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onBookRideToPlace(place)}
+                    className="flex-1 h-10 rounded-xl bg-[#0F522B] hover:bg-[#146C3A] text-xs font-bold text-white inline-flex items-center justify-center gap-1.5 shadow-sm smooth-press"
+                  >
+                    <Navigation className="w-3.5 h-3.5" />
+                    <span>Ride Here</span>
+                  </button>
+                </div>
+              </motion.div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 };

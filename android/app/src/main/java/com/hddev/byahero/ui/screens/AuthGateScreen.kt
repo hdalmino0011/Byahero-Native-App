@@ -1,6 +1,11 @@
 package com.hddev.byahero.ui.screens
 
 import android.content.Context
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -34,6 +39,7 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -44,6 +50,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -75,6 +82,8 @@ import com.hddev.byahero.ui.theme.ByaheroMuted
 import com.hddev.byahero.ui.theme.ByaheroSubtleGlass
 import com.hddev.byahero.ui.theme.ByaheroWhite
 import com.hddev.byahero.ui.theme.PoppinsFontFamily
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -199,6 +208,7 @@ private fun saveStoredAccounts(context: Context, accounts: List<StoredAuthAccoun
 @Composable
 fun AuthGateScreen(onAuthenticated: (UserProfile) -> Unit) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var mode by remember { mutableStateOf("login") }
     var fullName by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
@@ -208,6 +218,17 @@ fun AuthGateScreen(onAuthenticated: (UserProfile) -> Unit) {
     var selectedVehicle by remember { mutableStateOf(VehicleType.MOTORCYCLE) }
     var plateNumber by remember { mutableStateOf("BYH-2026") }
     var errorMsg by remember { mutableStateOf<String?>(null) }
+    var submittingKind by remember { mutableStateOf<String?>(null) }
+
+    fun completeAuthentication(profile: UserProfile, kind: String) {
+        if (submittingKind != null) return
+        submittingKind = kind
+        scope.launch {
+            delay(260)
+            submittingKind = null
+            onAuthenticated(profile)
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -323,7 +344,11 @@ fun AuthGateScreen(onAuthenticated: (UserProfile) -> Unit) {
                     }
 
                     // Inputs
-                    if (mode == "signup") {
+                    AnimatedVisibility(
+                        visible = mode == "signup",
+                        enter = fadeIn() + expandVertically(),
+                        exit = fadeOut() + shrinkVertically()
+                    ) {
                         ByaheroAuthInput(
                             label = "Full Name",
                             value = fullName,
@@ -353,92 +378,44 @@ fun AuthGateScreen(onAuthenticated: (UserProfile) -> Unit) {
                         onTogglePassword = { showPassword = !showPassword }
                     )
 
-                    if (mode == "signup") {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(
-                                text = "Select Role",
-                                fontFamily = PoppinsFontFamily,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = ByaheroDarkGreen
-                            )
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                listOf(
-                                    UserRole.PASSENGER to "Passenger",
-                                    UserRole.RIDER to "Rider",
-                                    UserRole.BOTH to "Both"
-                                ).forEach { (role, label) ->
-                                    val active = selectedRole == role
-                                    Box(
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .height(42.dp)
-                                            .clip(RoundedCornerShape(12.dp))
-                                            .background(if (active) ByaheroDarkGreen else ByaheroWhite.copy(alpha = 0.85f))
-                                            .border(
-                                                1.dp,
-                                                if (active) ByaheroDarkGreen else ByaheroBorder,
-                                                RoundedCornerShape(12.dp)
-                                            )
-                                            .clickable { selectedRole = role },
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = label,
-                                            fontFamily = PoppinsFontFamily,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = if (active) ByaheroWhite else ByaheroBlack
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        if (selectedRole == UserRole.RIDER || selectedRole == UserRole.BOTH) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(ByaheroSubtleGlass)
-                                    .border(1.dp, ByaheroBorder, RoundedCornerShape(16.dp))
-                                    .padding(12.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
+                    AnimatedVisibility(
+                        visible = mode == "signup",
+                        enter = fadeIn() + expandVertically(),
+                        exit = fadeOut() + shrinkVertically()
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(
+                                    text = "Select Role",
+                                    fontFamily = PoppinsFontFamily,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = ByaheroDarkGreen
+                                )
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     listOf(
-                                        Triple(VehicleType.MOTORCYCLE, "Motorcycle", Icons.Default.TwoWheeler),
-                                        Triple(VehicleType.TAXI, "Taxi", Icons.Default.DirectionsCar)
-                                    ).forEach { (type, label, icon) ->
-                                        val active = selectedVehicle == type
-                                        Row(
+                                        UserRole.PASSENGER to "Passenger",
+                                        UserRole.RIDER to "Rider",
+                                        UserRole.BOTH to "Both"
+                                    ).forEach { (role, label) ->
+                                        val active = selectedRole == role
+                                        Box(
                                             modifier = Modifier
                                                 .weight(1f)
-                                                .height(40.dp)
-                                                .clip(RoundedCornerShape(10.dp))
-                                                .background(if (active) ByaheroDarkGreen else ByaheroWhite)
+                                                .height(42.dp)
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .background(if (active) ByaheroDarkGreen else ByaheroWhite.copy(alpha = 0.85f))
                                                 .border(
                                                     1.dp,
                                                     if (active) ByaheroDarkGreen else ByaheroBorder,
-                                                    RoundedCornerShape(10.dp)
+                                                    RoundedCornerShape(12.dp)
                                                 )
-                                                .clickable { selectedVehicle = type },
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.Center
+                                                .clickable { selectedRole = role },
+                                            contentAlignment = Alignment.Center
                                         ) {
-                                            Icon(
-                                                imageVector = icon,
-                                                contentDescription = null,
-                                                tint = if (active) ByaheroWhite else ByaheroBlack,
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(6.dp))
                                             Text(
                                                 text = label,
                                                 fontFamily = PoppinsFontFamily,
@@ -449,62 +426,127 @@ fun AuthGateScreen(onAuthenticated: (UserProfile) -> Unit) {
                                         }
                                     }
                                 }
+                            }
 
-                                Box(
+                            AnimatedVisibility(
+                                visible = selectedRole == UserRole.RIDER || selectedRole == UserRole.BOTH,
+                                enter = fadeIn() + expandVertically(),
+                                exit = fadeOut() + shrinkVertically()
+                            ) {
+                                Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .height(42.dp)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(ByaheroWhite)
-                                        .border(1.dp, ByaheroBorder, RoundedCornerShape(10.dp))
-                                        .padding(horizontal = 12.dp),
-                                    contentAlignment = Alignment.CenterStart
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .background(ByaheroSubtleGlass)
+                                        .border(1.dp, ByaheroBorder, RoundedCornerShape(16.dp))
+                                        .padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
-                                    if (plateNumber.isEmpty()) {
-                                        Text(
-                                            text = "Plate Number (e.g. BYH-2026)",
-                                            fontFamily = PoppinsFontFamily,
-                                            fontSize = 12.sp,
-                                            color = ByaheroMuted
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        listOf(
+                                            Triple(VehicleType.MOTORCYCLE, "Motorcycle", Icons.Default.TwoWheeler),
+                                            Triple(VehicleType.TAXI, "Taxi", Icons.Default.DirectionsCar)
+                                        ).forEach { (type, label, icon) ->
+                                            val active = selectedVehicle == type
+                                            Row(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .height(40.dp)
+                                                    .clip(RoundedCornerShape(10.dp))
+                                                    .background(if (active) ByaheroDarkGreen else ByaheroWhite)
+                                                    .border(
+                                                        1.dp,
+                                                        if (active) ByaheroDarkGreen else ByaheroBorder,
+                                                        RoundedCornerShape(10.dp)
+                                                    )
+                                                    .clickable { selectedVehicle = type },
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = icon,
+                                                    contentDescription = null,
+                                                    tint = if (active) ByaheroWhite else ByaheroBlack,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    text = label,
+                                                    fontFamily = PoppinsFontFamily,
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = if (active) ByaheroWhite else ByaheroBlack
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(42.dp)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(ByaheroWhite)
+                                            .border(1.dp, ByaheroBorder, RoundedCornerShape(10.dp))
+                                            .padding(horizontal = 12.dp),
+                                        contentAlignment = Alignment.CenterStart
+                                    ) {
+                                        if (plateNumber.isEmpty()) {
+                                            Text(
+                                                text = "Plate Number (e.g. BYH-2026)",
+                                                fontFamily = PoppinsFontFamily,
+                                                fontSize = 12.sp,
+                                                color = ByaheroMuted
+                                            )
+                                        }
+                                        BasicTextField(
+                                            value = plateNumber,
+                                            onValueChange = { plateNumber = it.uppercase() },
+                                            singleLine = true,
+                                            textStyle = TextStyle(
+                                                fontFamily = PoppinsFontFamily,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = ByaheroBlack
+                                            ),
+                                            cursorBrush = SolidColor(ByaheroDarkGreen),
+                                            modifier = Modifier.fillMaxWidth()
                                         )
                                     }
-                                    BasicTextField(
-                                        value = plateNumber,
-                                        onValueChange = { plateNumber = it.uppercase() },
-                                        singleLine = true,
-                                        textStyle = TextStyle(
-                                            fontFamily = PoppinsFontFamily,
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Medium,
-                                            color = ByaheroBlack
-                                        ),
-                                        cursorBrush = SolidColor(ByaheroDarkGreen),
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
                                 }
                             }
                         }
                     }
 
-                    if (errorMsg != null) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(Color(0xFFFEF2F2))
-                                .border(1.dp, Color(0xFFFECACA), RoundedCornerShape(12.dp))
-                                .padding(horizontal = 12.dp, vertical = 10.dp)
-                        ) {
-                            Text(
-                                text = errorMsg!!,
-                                fontFamily = PoppinsFontFamily,
-                                fontSize = 12.sp,
-                                color = Color(0xFFB91C1C)
-                            )
+                    AnimatedVisibility(
+                        visible = errorMsg != null,
+                        enter = fadeIn() + expandVertically(),
+                        exit = fadeOut() + shrinkVertically()
+                    ) {
+                        errorMsg?.let { msg ->
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(Color(0xFFFEF2F2))
+                                    .border(1.dp, Color(0xFFFECACA), RoundedCornerShape(12.dp))
+                                    .padding(horizontal = 12.dp, vertical = 10.dp)
+                            ) {
+                                Text(
+                                    text = msg,
+                                    fontFamily = PoppinsFontFamily,
+                                    fontSize = 12.sp,
+                                    color = Color(0xFFB91C1C)
+                                )
+                            }
                         }
                     }
 
                     Button(
+                        enabled = submittingKind == null,
                         onClick = {
                             errorMsg = null
                             val cleanEmail = email.trim().lowercase()
@@ -521,7 +563,7 @@ fun AuthGateScreen(onAuthenticated: (UserProfile) -> Unit) {
                                     errorMsg = "Incorrect email or password. Please check your credentials or sign up."
                                     return@Button
                                 }
-                                onAuthenticated(match.toProfile())
+                                completeAuthentication(match.toProfile(), "form")
                             } else {
                                 val cleanName = fullName.trim()
                                 if (cleanName.isBlank() || !cleanEmail.contains("@") || password.length < 6) {
@@ -543,7 +585,7 @@ fun AuthGateScreen(onAuthenticated: (UserProfile) -> Unit) {
                                     authProvider = "member"
                                 )
                                 saveStoredAccounts(context, listOf(created) + accounts)
-                                onAuthenticated(created.toProfile())
+                                completeAuthentication(created.toProfile(), "form")
                             }
                         },
                         modifier = Modifier
@@ -555,12 +597,27 @@ fun AuthGateScreen(onAuthenticated: (UserProfile) -> Unit) {
                             contentColor = ByaheroWhite
                         )
                     ) {
-                        Text(
-                            text = if (mode == "login") "Log In" else "Create Account",
-                            fontFamily = PoppinsFontFamily,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                        if (submittingKind == "form") {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                                color = ByaheroWhite
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (mode == "login") "Signing In..." else "Creating Account...",
+                                fontFamily = PoppinsFontFamily,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        } else {
+                            Text(
+                                text = if (mode == "login") "Log In" else "Create Account",
+                                fontFamily = PoppinsFontFamily,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
 
                     Row(
@@ -580,12 +637,14 @@ fun AuthGateScreen(onAuthenticated: (UserProfile) -> Unit) {
                     }
 
                     OutlinedButton(
+                        enabled = submittingKind == null,
                         onClick = {
+                            errorMsg = null
                             val accounts = loadStoredAccounts(context)
                             val googleAcc = accounts.firstOrNull {
                                 it.email.equals("alex@byahero.app", ignoreCase = true)
                             } ?: DefaultSeedAccounts[2]
-                            onAuthenticated(googleAcc.toProfile())
+                            completeAuthentication(googleAcc.toProfile(), "google")
                         },
                         modifier = Modifier
                             .fillMaxWidth()
@@ -597,19 +656,35 @@ fun AuthGateScreen(onAuthenticated: (UserProfile) -> Unit) {
                             contentColor = ByaheroBlack
                         )
                     ) {
-                        Image(
-                            painter = painterResource(id = R.drawable.ic_google_g),
-                            contentDescription = "Google",
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = "Continue with Google",
-                            fontFamily = PoppinsFontFamily,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = ByaheroBlack
-                        )
+                        if (submittingKind == "google") {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                                color = ByaheroDarkGreen
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = "Connecting Google...",
+                                fontFamily = PoppinsFontFamily,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = ByaheroBlack
+                            )
+                        } else {
+                            Image(
+                                painter = painterResource(id = R.drawable.ic_google_g),
+                                contentDescription = "Google",
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = "Continue with Google",
+                                fontFamily = PoppinsFontFamily,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = ByaheroBlack
+                            )
+                        }
                     }
                 }
             }

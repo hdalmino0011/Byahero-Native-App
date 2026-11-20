@@ -1,8 +1,10 @@
 import React, {useState} from 'react';
 import {ShieldCheck, UserCheck, Bike, Car, X} from 'lucide-react';
+import {AnimatePresence, motion} from 'motion/react';
 import {UserProfile, UserRole, VehicleType} from '../types/byahero';
 import {GoogleGVectorIcon, ByaheroLogoMark, ByaheroWordmarkVector} from './VectorGraphics';
 import {isSupabaseConfigured, signInWithGoogleSupabase} from '../lib/supabase';
+import {LoadingSpinner} from './LoadingSpinner';
 
 interface AuthModalProps {
   open: boolean;
@@ -24,8 +26,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [email, setEmail] = useState<string>(currentProfile.email || '');
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-
-  if (!open) return null;
 
   const handleSaveAccount = async () => {
     setIsLoading(true);
@@ -51,19 +51,34 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       vehicleType,
       plateNumber: plateNumber.trim() || 'BYH-2026',
     };
-    onAuthenticate(nextProfile);
-    setIsLoading(false);
-    onClose();
+    window.setTimeout(() => {
+      onAuthenticate(nextProfile);
+      setIsLoading(false);
+      onClose();
+    }, 300);
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-0 sm:p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="auth-modal-title"
-    >
-      <div className="w-full sm:max-w-md bg-white/90 backdrop-blur-2xl border border-white rounded-t-3xl sm:rounded-3xl text-[#101713] shadow-2xl overflow-hidden">
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          key="auth-modal-backdrop"
+          initial={{opacity: 0}}
+          animate={{opacity: 1}}
+          exit={{opacity: 0}}
+          transition={{duration: 0.2}}
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-0 sm:p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="auth-modal-title"
+        >
+          <motion.div
+            initial={{opacity: 0, y: 24, scale: 0.97}}
+            animate={{opacity: 1, y: 0, scale: 1}}
+            exit={{opacity: 0, y: 20, scale: 0.97}}
+            transition={{duration: 0.24, ease: [0.16, 1, 0.3, 1]}}
+            className="w-full sm:max-w-md bg-white/92 backdrop-blur-2xl border border-white rounded-t-3xl sm:rounded-3xl text-[#101713] shadow-2xl overflow-hidden"
+          >
         <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-[#0F522B]/10">
           <div className="flex items-center gap-3">
             <ByaheroLogoMark className="w-9 h-9" />
@@ -214,10 +229,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             type="button"
             disabled={isLoading}
             onClick={handleSaveAccount}
-            className="w-full h-12 rounded-xl bg-[#0F522B] hover:bg-[#146C3A] text-white font-bold text-sm flex items-center justify-center gap-3 shadow-md active:scale-[0.99] transition-all disabled:opacity-60"
+            className="w-full h-12 rounded-xl bg-[#0F522B] hover:bg-[#146C3A] text-white font-bold text-sm flex items-center justify-center gap-3 shadow-md smooth-press disabled:opacity-75"
           >
-            <GoogleGVectorIcon className="w-5 h-5" />
-            <span>{isLoading ? 'Saving Changes...' : 'Save & Sync Profile'}</span>
+            {isLoading ? (
+              <LoadingSpinner size="xs" tone="white" label="Saving changes..." />
+            ) : (
+              <>
+                <GoogleGVectorIcon className="w-5 h-5" />
+                <span>Save & Sync Profile</span>
+              </>
+            )}
           </button>
 
           <div className="flex items-center justify-between text-[11px] text-[#55625A] pt-1">
@@ -231,7 +252,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </span>
           </div>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
+      )}
+    </AnimatePresence>
   );
 };

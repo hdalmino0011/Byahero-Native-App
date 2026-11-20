@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -106,6 +107,17 @@ fun SplashIntroScreen(onFinished: () -> Unit) {
                 fontWeight = FontWeight.Medium,
                 letterSpacing = 3.sp,
                 modifier = Modifier.alpha(contentAlpha.value)
+            )
+
+            Spacer(modifier = Modifier.height(22.dp))
+
+            CircularProgressIndicator(
+                modifier = Modifier
+                    .size(22.dp)
+                    .alpha(contentAlpha.value),
+                strokeWidth = 2.2.dp,
+                color = ByaheroEmerald,
+                trackColor = ByaheroWhite.copy(alpha = 0.16f)
             )
         }
     }

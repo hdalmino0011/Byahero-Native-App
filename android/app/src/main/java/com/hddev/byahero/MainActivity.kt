@@ -6,6 +6,12 @@ import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,16 +49,37 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                when {
-                    showSplash -> SplashIntroScreen(onFinished = { showSplash = false })
-                    authenticatedProfile == null -> AuthGateScreen(
-                        onAuthenticated = { profile -> authenticatedProfile = profile }
-                    )
-                    else -> MainScreen(
-                        profile = authenticatedProfile!!,
-                        onUpdateProfile = { updated -> authenticatedProfile = updated },
-                        onLogout = { authenticatedProfile = null }
-                    )
+                val screenKey = when {
+                    showSplash -> 0
+                    authenticatedProfile == null -> 1
+                    else -> 2
+                }
+
+                AnimatedContent(
+                    targetState = screenKey,
+                    transitionSpec = {
+                        (fadeIn(animationSpec = tween(260)) +
+                            scaleIn(initialScale = 0.985f, animationSpec = tween(260))) togetherWith
+                            fadeOut(animationSpec = tween(180))
+                    },
+                    label = "root_screen_transition"
+                ) { state ->
+                    when (state) {
+                        0 -> SplashIntroScreen(onFinished = { showSplash = false })
+                        1 -> AuthGateScreen(
+                            onAuthenticated = { profile -> authenticatedProfile = profile }
+                        )
+                        else -> {
+                            val activeProfile = authenticatedProfile
+                            if (activeProfile != null) {
+                                MainScreen(
+                                    profile = activeProfile,
+                                    onUpdateProfile = { updated -> authenticatedProfile = updated },
+                                    onLogout = { authenticatedProfile = null }
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }

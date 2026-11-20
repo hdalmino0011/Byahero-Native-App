@@ -30,11 +30,13 @@ import {
 } from '../types/byahero';
 import {formatPhp} from '../utils/pricing';
 import {areLocationsSame} from '../utils/locationMatch';
+import {AnimatePresence, motion} from 'motion/react';
 import {
   PlaceSuggestionItem,
   useAutocompleteSuggestions,
 } from '../hooks/useAutocompleteSuggestions';
 import {ByaheroMotorcycleVector, ByaheroTaxiVector} from './VectorGraphics';
+import {LoadingSpinner} from './LoadingSpinner';
 
 interface BookingPanelProps {
   userLocation: LatLngPoint;
@@ -68,6 +70,10 @@ interface BookingPanelProps {
   onBookRide: () => void;
   onAdvanceRideStatus: () => void;
   onCancelRide: () => void;
+  isResolvingPickup?: boolean;
+  isResolvingDestination?: boolean;
+  isCalculatingRoute?: boolean;
+  isBookingRide?: boolean;
 }
 
 export const BookingPanel: React.FC<BookingPanelProps> = ({
@@ -100,6 +106,10 @@ export const BookingPanel: React.FC<BookingPanelProps> = ({
   onBookRide,
   onAdvanceRideStatus,
   onCancelRide,
+  isResolvingPickup = false,
+  isResolvingDestination = false,
+  isCalculatingRoute = false,
+  isBookingRide = false,
 }) => {
   const stopsAreIdentical = Boolean(
     pickup && destination && areLocationsSame(pickup, destination)
@@ -110,6 +120,9 @@ export const BookingPanel: React.FC<BookingPanelProps> = ({
     null
   );
   const [fallbackResults, setFallbackResults] = useState<LocationStop[]>([]);
+  const [isFallbackLoading, setIsFallbackLoading] = useState(false);
+  const [resolvingSuggestionId, setResolvingSuggestionId] = useState<string | null>(null);
+  const [isSavingPayment, setIsSavingPayment] = useState(false);
 
   const [addingPaymentType, setAddingPaymentType] = useState<'gcash' | 'card' | null>(
     null
@@ -147,6 +160,7 @@ export const BookingPanel: React.FC<BookingPanelProps> = ({
       setFallbackResults([]);
       return;
     }
+    setIsFallbackLoading(true);
     try {
       const delta = 0.35;
       const viewbox = `${userLocation.lng - delta},${userLocation.lat + delta},${userLocation.lng + delta},${userLocation.lat - delta}`;
@@ -174,11 +188,15 @@ export const BookingPanel: React.FC<BookingPanelProps> = ({
       }
     } catch {
       setFallbackResults([]);
+    } finally {
+      setIsFallbackLoading(false);
     }
   };
 
   const handleSelectSuggestion = async (item: PlaceSuggestionItem) => {
+    setResolvingSuggestionId(item.id);
     const resolved = await resolvePlace(item);
+    setResolvingSuggestionId(null);
     if (!resolved) return;
     if (focusedField === 'pickup') {
       onSetPickup(resolved);
@@ -250,11 +268,15 @@ export const BookingPanel: React.FC<BookingPanelProps> = ({
       holderName: cleanName,
       isDefault: true,
     };
-    onSavePaymentMethod(created);
-    setGcashNumber('');
-    setGcashName('');
-    setPaymentFormError(null);
-    setAddingPaymentType(null);
+    setIsSavingPayment(true);
+    window.setTimeout(() => {
+      onSavePaymentMethod(created);
+      setGcashNumber('');
+      setGcashName('');
+      setPaymentFormError(null);
+      setIsSavingPayment(false);
+      setAddingPaymentType(null);
+    }, 320);
   };
 
   const handleRegisterCard = (e: React.FormEvent) => {
@@ -285,13 +307,17 @@ export const BookingPanel: React.FC<BookingPanelProps> = ({
       expiry: cardExpiry.trim(),
       isDefault: true,
     };
-    onSavePaymentMethod(created);
-    setCardHolder('');
-    setCardNumber('');
-    setCardExpiry('');
-    setCardCvv('');
-    setPaymentFormError(null);
-    setAddingPaymentType(null);
+    setIsSavingPayment(true);
+    window.setTimeout(() => {
+      onSavePaymentMethod(created);
+      setCardHolder('');
+      setCardNumber('');
+      setCardExpiry('');
+      setCardCvv('');
+      setPaymentFormError(null);
+      setIsSavingPayment(false);
+      setAddingPaymentType(null);
+    }, 320);
   };
 
   if (activeRide) {
@@ -306,15 +332,26 @@ export const BookingPanel: React.FC<BookingPanelProps> = ({
     const currentIdx = statusSteps.findIndex((s) => s.key === activeRide.status);
 
     return (
-      <div className="space-y-4">
+      <motion.div
+        key="active-ride-panel"
+        initial={{opacity: 0, y: 10}}
+        animate={{opacity: 1, y: 0}}
+        transition={{duration: 0.22, ease: [0.16, 1, 0.3, 1]}}
+        className="space-y-4"
+      >
         <div className="p-4 rounded-2xl glass-green text-white space-y-3">
           <div className="flex items-center justify-between gap-2">
             <div>
-              <div className="text-xs font-semibold text-emerald-200">
-                {activeRide.vehicleType === 'motorcycle'
-                  ? 'BYAHERO Moto'
-                  : 'BYAHERO Cab'}{' '}
-                · {activeRide.paymentMethodLabel || 'Cash'}
+              <div className="text-xs font-semibold text-emerald-200 flex items-center gap-2">
+                <span>
+                  {activeRide.vehicleType === 'motorcycle'
+                    ? 'BYAHERO Moto'
+                    : 'BYAHERO Cab'}{' '}
+                  · {activeRide.paymentMethodLabel || 'Cash'}
+                </span>
+                {activeRide.status === 'searching' && (
+                  <LoadingSpinner size="xs" tone="white" />
+                )}
               </div>
               <h3 className="text-base font-bold text-white mt-0.5">
                 {statusSteps[Math.max(0, currentIdx)].label}
@@ -412,7 +449,7 @@ export const BookingPanel: React.FC<BookingPanelProps> = ({
             </button>
           )}
         </div>
-      </div>
+      </motion.div>
     );
   }
 
@@ -455,7 +492,11 @@ export const BookingPanel: React.FC<BookingPanelProps> = ({
 
       <div className="relative space-y-2.5">
         <div className="flex items-center gap-1.5 glass-surface focus-within:border-[#0F522B] rounded-2xl px-3.5 py-2 transition-colors">
-          <span className="w-2.5 h-2.5 rounded-full bg-[#101713] ring-4 ring-[#0F522B]/20 shrink-0" />
+          {isResolvingPickup ? (
+            <LoadingSpinner size="xs" tone="green" />
+          ) : (
+            <span className="w-2.5 h-2.5 rounded-full bg-[#101713] ring-4 ring-[#0F522B]/20 shrink-0" />
+          )}
           <div className="flex-1 min-w-0">
             <div className="text-[10px] font-medium text-[#55625A]">Pickup Location</div>
             <input
@@ -487,6 +528,9 @@ export const BookingPanel: React.FC<BookingPanelProps> = ({
               className="w-full bg-transparent text-sm font-semibold text-[#101713] placeholder:text-[#55625A] focus:outline-none truncate"
             />
           </div>
+          {focusedField === 'pickup' && (isLoading || isFallbackLoading) && (
+            <LoadingSpinner size="xs" tone="green" className="mr-1" />
+          )}
           {focusedField === 'pickup' && pickupQuery && (
             <button
               type="button"
@@ -503,17 +547,22 @@ export const BookingPanel: React.FC<BookingPanelProps> = ({
           )}
           <button
             type="button"
+            disabled={isResolvingPickup}
             onClick={onUseCurrentGpsAsPickup}
             title="Use Current GPS Location"
             aria-label="Use current GPS as pickup"
-            className="min-h-[38px] min-w-[38px] flex items-center justify-center rounded-xl text-[#0F522B] hover:bg-[#0F522B]/10 transition-colors"
+            className="min-h-[38px] min-w-[38px] flex items-center justify-center rounded-xl text-[#0F522B] hover:bg-[#0F522B]/10 smooth-press"
           >
-            <Crosshair className="w-4 h-4" />
+            {isResolvingPickup ? (
+              <LoadingSpinner size="xs" tone="green" />
+            ) : (
+              <Crosshair className="w-4 h-4" />
+            )}
           </button>
           <button
             type="button"
             onClick={() => onStartMapPick('pickup')}
-            className="min-h-[38px] px-2.5 rounded-xl bg-[#EBF1ED] hover:bg-[#DCE7E0] text-[11px] font-semibold text-[#0F522B] whitespace-nowrap"
+            className="min-h-[38px] px-2.5 rounded-xl bg-[#EBF1ED] hover:bg-[#DCE7E0] text-[11px] font-semibold text-[#0F522B] whitespace-nowrap smooth-press"
           >
             Map
           </button>
@@ -531,7 +580,11 @@ export const BookingPanel: React.FC<BookingPanelProps> = ({
         </div>
 
         <div className="flex items-center gap-1.5 glass-surface focus-within:border-[#0F522B] rounded-2xl px-3.5 py-2 transition-colors">
-          <span className="w-2.5 h-2.5 rounded-sm bg-[#0F522B] shrink-0" />
+          {isResolvingDestination ? (
+            <LoadingSpinner size="xs" tone="green" />
+          ) : (
+            <span className="w-2.5 h-2.5 rounded-sm bg-[#0F522B] shrink-0" />
+          )}
           <div className="flex-1 min-w-0">
             <div className="text-[10px] font-medium text-[#55625A]">Destination</div>
             <input
@@ -563,13 +616,16 @@ export const BookingPanel: React.FC<BookingPanelProps> = ({
               className="w-full bg-transparent text-sm font-semibold text-[#101713] placeholder:text-[#55625A] focus:outline-none truncate"
             />
           </div>
+          {focusedField === 'destination' && (isLoading || isFallbackLoading) && (
+            <LoadingSpinner size="xs" tone="green" className="mr-1" />
+          )}
           {destination && !isDestAlreadyFavorite && (
             <button
               type="button"
               onClick={() => onAddFavoriteDestination(destination)}
               title="Save Destination to Favorites"
               aria-label="Save destination to favorites"
-              className="min-h-[34px] px-2 rounded-lg text-[#0F522B] hover:bg-[#0F522B]/10 text-[10px] font-bold flex items-center gap-1 shrink-0"
+              className="min-h-[34px] px-2 rounded-lg text-[#0F522B] hover:bg-[#0F522B]/10 text-[10px] font-bold flex items-center gap-1 shrink-0 smooth-press"
             >
               <Bookmark className="w-3.5 h-3.5" />
               <span>Save</span>
@@ -592,83 +648,121 @@ export const BookingPanel: React.FC<BookingPanelProps> = ({
           <button
             type="button"
             onClick={() => onStartMapPick('destination')}
-            className="min-h-[38px] px-2.5 rounded-xl bg-[#EBF1ED] hover:bg-[#DCE7E0] text-[11px] font-semibold text-[#0F522B] whitespace-nowrap"
+            className="min-h-[38px] px-2.5 rounded-xl bg-[#EBF1ED] hover:bg-[#DCE7E0] text-[11px] font-semibold text-[#0F522B] whitespace-nowrap smooth-press"
           >
             Map
           </button>
         </div>
 
-        {focusedField && (suggestions.length > 0 || fallbackResults.length > 0 || isLoading) && (
-          <div className="glass-surface rounded-2xl overflow-hidden divide-y divide-[#0F522B]/10 shadow-xl">
-            {isLoading && suggestions.length === 0 && fallbackResults.length === 0 && (
-              <div className="px-4 py-3 text-xs text-[#55625A]">
-                Searching places...
-              </div>
-            )}
-            {suggestions.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => void handleSelectSuggestion(item)}
-                className="w-full min-h-[46px] px-3.5 py-2.5 text-left hover:bg-[#0F522B]/5 transition-colors flex items-start gap-2.5"
+        <AnimatePresence>
+          {focusedField &&
+            (suggestions.length > 0 ||
+              fallbackResults.length > 0 ||
+              isLoading ||
+              isFallbackLoading) && (
+              <motion.div
+                initial={{opacity: 0, y: -6, scale: 0.99}}
+                animate={{opacity: 1, y: 0, scale: 1}}
+                exit={{opacity: 0, y: -6, scale: 0.99}}
+                transition={{duration: 0.18, ease: [0.16, 1, 0.3, 1]}}
+                className="glass-surface rounded-2xl overflow-hidden divide-y divide-[#0F522B]/10 shadow-xl"
               >
-                <MapPin className="w-4 h-4 text-[#0F522B] mt-0.5 shrink-0" />
-                <div className="min-w-0">
-                  <div className="text-xs font-semibold text-[#101713] truncate">
-                    {item.mainText}
-                  </div>
-                  {item.secondaryText && (
-                    <div className="text-[11px] text-[#55625A] truncate">
-                      {item.secondaryText}
+                {(isLoading || isFallbackLoading) &&
+                  suggestions.length === 0 &&
+                  fallbackResults.length === 0 && (
+                    <div className="px-4 py-3 flex items-center">
+                      <LoadingSpinner
+                        size="xs"
+                        tone="green"
+                        label="Searching places..."
+                      />
                     </div>
                   )}
-                </div>
-              </button>
-            ))}
-            {suggestions.length === 0 &&
-              fallbackResults.map((stop, idx) => {
-                const conflictsOpposite =
-                  focusedField === 'pickup'
-                    ? areLocationsSame(stop, destination)
-                    : areLocationsSame(stop, pickup);
-                return (
-                  <button
-                    key={stop.placeId || `fb_${idx}`}
-                    type="button"
-                    onClick={() => handleSelectFallbackStop(stop)}
-                    className="w-full min-h-[46px] px-3.5 py-2.5 text-left hover:bg-[#0F522B]/5 transition-colors flex items-center justify-between gap-2.5"
-                  >
-                    <div className="flex items-start gap-2.5 min-w-0">
-                      <MapPin className="w-4 h-4 text-[#0F522B] mt-0.5 shrink-0" />
+                {suggestions.map((item) => {
+                  const isResolvingThis = resolvingSuggestionId === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      disabled={isResolvingThis}
+                      onClick={() => void handleSelectSuggestion(item)}
+                      className="w-full min-h-[46px] px-3.5 py-2.5 text-left hover:bg-[#0F522B]/5 transition-colors flex items-start gap-2.5"
+                    >
+                      {isResolvingThis ? (
+                        <div className="mt-0.5 shrink-0">
+                          <LoadingSpinner size="xs" tone="green" />
+                        </div>
+                      ) : (
+                        <MapPin className="w-4 h-4 text-[#0F522B] mt-0.5 shrink-0" />
+                      )}
                       <div className="min-w-0">
                         <div className="text-xs font-semibold text-[#101713] truncate">
-                          {stop.label}
+                          {item.mainText}
                         </div>
-                        <div className="text-[11px] text-[#55625A] truncate">
-                          {stop.address}
-                        </div>
+                        {item.secondaryText && (
+                          <div className="text-[11px] text-[#55625A] truncate">
+                            {item.secondaryText}
+                          </div>
+                        )}
                       </div>
-                    </div>
-                    {conflictsOpposite && (
-                      <span className="text-[10px] font-bold text-red-700 shrink-0">
-                        {focusedField === 'pickup' ? 'Selected as Dest' : 'Selected as Pickup'}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-          </div>
-        )}
+                    </button>
+                  );
+                })}
+                {suggestions.length === 0 &&
+                  fallbackResults.map((stop, idx) => {
+                    const conflictsOpposite =
+                      focusedField === 'pickup'
+                        ? areLocationsSame(stop, destination)
+                        : areLocationsSame(stop, pickup);
+                    return (
+                      <button
+                        key={stop.placeId || `fb_${idx}`}
+                        type="button"
+                        onClick={() => handleSelectFallbackStop(stop)}
+                        className="w-full min-h-[46px] px-3.5 py-2.5 text-left hover:bg-[#0F522B]/5 transition-colors flex items-center justify-between gap-2.5"
+                      >
+                        <div className="flex items-start gap-2.5 min-w-0">
+                          <MapPin className="w-4 h-4 text-[#0F522B] mt-0.5 shrink-0" />
+                          <div className="min-w-0">
+                            <div className="text-xs font-semibold text-[#101713] truncate">
+                              {stop.label}
+                            </div>
+                            <div className="text-[11px] text-[#55625A] truncate">
+                              {stop.address}
+                            </div>
+                          </div>
+                        </div>
+                        {conflictsOpposite && (
+                          <span className="text-[10px] font-bold text-red-700 shrink-0">
+                            {focusedField === 'pickup'
+                              ? 'Selected as Dest'
+                              : 'Selected as Pickup'}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+              </motion.div>
+            )}
+        </AnimatePresence>
 
-        {(locationError || stopsAreIdentical) && (
-          <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-red-50 border border-red-200 text-xs font-medium text-red-700">
-            <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
-            <span>
-              {locationError ||
-                'Pickup and destination cannot be the same location.'}
-            </span>
-          </div>
-        )}
+        <AnimatePresence>
+          {(locationError || stopsAreIdentical) && (
+            <motion.div
+              initial={{opacity: 0, y: -4}}
+              animate={{opacity: 1, y: 0}}
+              exit={{opacity: 0, y: -4}}
+              transition={{duration: 0.18}}
+              className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-red-50 border border-red-200 text-xs font-medium text-red-700"
+            >
+              <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
+              <span>
+                {locationError ||
+                  'Pickup and destination cannot be the same location.'}
+              </span>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {favorites.length > 0 && (
@@ -874,120 +968,155 @@ export const BookingPanel: React.FC<BookingPanelProps> = ({
           </div>
         </div>
 
-        {addingPaymentType === 'gcash' && (
-          <form
-            onSubmit={handleConnectGcash}
-            className="pt-2.5 border-t border-[#0F522B]/10 space-y-2"
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-[#0F522B]">
-                Connect & Save GCash Account
-              </span>
-              <button
-                type="button"
-                onClick={() => {
-                  setAddingPaymentType(null);
-                  setPaymentFormError(null);
-                }}
-                className="text-[11px] text-[#55625A]"
-              >
-                Cancel
-              </button>
-            </div>
-            <input
-              type="tel"
-              value={gcashNumber}
-              onChange={(e) => setGcashNumber(e.target.value)}
-              placeholder="GCash Mobile Number (e.g. 09171234567)"
-              className="w-full h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
-            />
-            <input
-              type="text"
-              value={gcashName}
-              onChange={(e) => setGcashName(e.target.value)}
-              placeholder="Account Full Name"
-              className="w-full h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
-            />
-            {paymentFormError && (
-              <div className="text-[11px] font-medium text-red-600">{paymentFormError}</div>
-            )}
-            <button
-              type="submit"
-              className="w-full h-9 rounded-xl bg-[#0F522B] hover:bg-[#146C3A] text-white text-xs font-bold transition-colors"
+        <AnimatePresence mode="wait">
+          {addingPaymentType === 'gcash' && (
+            <motion.form
+              key="gcash-inline-form"
+              initial={{opacity: 0, y: -6}}
+              animate={{opacity: 1, y: 0}}
+              exit={{opacity: 0, y: -6}}
+              transition={{duration: 0.18, ease: [0.16, 1, 0.3, 1]}}
+              onSubmit={handleConnectGcash}
+              className="pt-2.5 border-t border-[#0F522B]/10 space-y-2"
             >
-              Connect & Save GCash
-            </button>
-          </form>
-        )}
-
-        {addingPaymentType === 'card' && (
-          <form
-            onSubmit={handleRegisterCard}
-            className="pt-2.5 border-t border-[#0F522B]/10 space-y-2"
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-[#0F522B]">
-                Register & Save Credit / Debit Card
-              </span>
-              <button
-                type="button"
-                onClick={() => {
-                  setAddingPaymentType(null);
-                  setPaymentFormError(null);
-                }}
-                className="text-[11px] text-[#55625A]"
-              >
-                Cancel
-              </button>
-            </div>
-            <input
-              type="text"
-              value={cardHolder}
-              onChange={(e) => setCardHolder(e.target.value)}
-              placeholder="Cardholder Name"
-              className="w-full h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
-            />
-            <input
-              type="text"
-              value={cardNumber}
-              onChange={(e) => setCardNumber(e.target.value)}
-              placeholder="Card Number (16 digits)"
-              maxLength={19}
-              className="w-full h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
-            />
-            <div className="grid grid-cols-2 gap-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-[#0F522B]">
+                  Connect & Save GCash Account
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAddingPaymentType(null);
+                    setPaymentFormError(null);
+                  }}
+                  className="text-[11px] text-[#55625A]"
+                >
+                  Cancel
+                </button>
+              </div>
+              <input
+                type="tel"
+                value={gcashNumber}
+                onChange={(e) => setGcashNumber(e.target.value)}
+                placeholder="GCash Mobile Number (e.g. 09171234567)"
+                className="w-full h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
+              />
               <input
                 type="text"
-                value={cardExpiry}
-                onChange={(e) => setCardExpiry(e.target.value)}
-                placeholder="MM/YY"
-                maxLength={5}
+                value={gcashName}
+                onChange={(e) => setGcashName(e.target.value)}
+                placeholder="Account Full Name"
+                className="w-full h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
+              />
+              {paymentFormError && (
+                <div className="text-[11px] font-medium text-red-600">{paymentFormError}</div>
+              )}
+              <button
+                type="submit"
+                disabled={isSavingPayment}
+                className="w-full h-9 rounded-xl bg-[#0F522B] hover:bg-[#146C3A] disabled:opacity-75 text-white text-xs font-bold smooth-press flex items-center justify-center gap-2"
+              >
+                {isSavingPayment ? (
+                  <LoadingSpinner size="xs" tone="white" label="Connecting GCash..." />
+                ) : (
+                  'Connect & Save GCash'
+                )}
+              </button>
+            </motion.form>
+          )}
+
+          {addingPaymentType === 'card' && (
+            <motion.form
+              key="card-inline-form"
+              initial={{opacity: 0, y: -6}}
+              animate={{opacity: 1, y: 0}}
+              exit={{opacity: 0, y: -6}}
+              transition={{duration: 0.18, ease: [0.16, 1, 0.3, 1]}}
+              onSubmit={handleRegisterCard}
+              className="pt-2.5 border-t border-[#0F522B]/10 space-y-2"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-[#0F522B]">
+                  Register & Save Credit / Debit Card
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAddingPaymentType(null);
+                    setPaymentFormError(null);
+                  }}
+                  className="text-[11px] text-[#55625A]"
+                >
+                  Cancel
+                </button>
+              </div>
+              <input
+                type="text"
+                value={cardHolder}
+                onChange={(e) => setCardHolder(e.target.value)}
+                placeholder="Cardholder Name"
                 className="w-full h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
               />
               <input
-                type="password"
-                value={cardCvv}
-                onChange={(e) => setCardCvv(e.target.value)}
-                placeholder="CVV"
-                maxLength={4}
+                type="text"
+                value={cardNumber}
+                onChange={(e) => setCardNumber(e.target.value)}
+                placeholder="Card Number (16 digits)"
+                maxLength={19}
                 className="w-full h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
               />
-            </div>
-            {paymentFormError && (
-              <div className="text-[11px] font-medium text-red-600">{paymentFormError}</div>
-            )}
-            <button
-              type="submit"
-              className="w-full h-9 rounded-xl bg-[#0F522B] hover:bg-[#146C3A] text-white text-xs font-bold transition-colors"
-            >
-              Register & Save Card
-            </button>
-          </form>
-        )}
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  type="text"
+                  value={cardExpiry}
+                  onChange={(e) => setCardExpiry(e.target.value)}
+                  placeholder="MM/YY"
+                  maxLength={5}
+                  className="w-full h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
+                />
+                <input
+                  type="password"
+                  value={cardCvv}
+                  onChange={(e) => setCardCvv(e.target.value)}
+                  placeholder="CVV"
+                  maxLength={4}
+                  className="w-full h-9 px-3 rounded-xl bg-white border border-[#0F522B]/20 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
+                />
+              </div>
+              {paymentFormError && (
+                <div className="text-[11px] font-medium text-red-600">{paymentFormError}</div>
+              )}
+              <button
+                type="submit"
+                disabled={isSavingPayment}
+                className="w-full h-9 rounded-xl bg-[#0F522B] hover:bg-[#146C3A] disabled:opacity-75 text-white text-xs font-bold smooth-press flex items-center justify-center gap-2"
+              >
+                {isSavingPayment ? (
+                  <LoadingSpinner size="xs" tone="white" label="Registering card..." />
+                ) : (
+                  'Register & Save Card'
+                )}
+              </button>
+            </motion.form>
+          )}
+        </AnimatePresence>
       </div>
 
-      {pickup && destination && fare && !stopsAreIdentical ? (
-        <div className="p-3.5 rounded-2xl glass-surface space-y-2.5">
+      {isCalculatingRoute ? (
+        <div className="px-4 py-3.5 rounded-2xl glass-surface flex items-center justify-center">
+          <LoadingSpinner
+            size="sm"
+            tone="green"
+            label="Calculating best route & fare..."
+          />
+        </div>
+      ) : pickup && destination && fare && !stopsAreIdentical ? (
+        <motion.div
+          initial={{opacity: 0, y: 6}}
+          animate={{opacity: 1, y: 0}}
+          transition={{duration: 0.2, ease: [0.16, 1, 0.3, 1]}}
+          className="p-3.5 rounded-2xl glass-surface space-y-2.5"
+        >
           <div className="flex items-center justify-between text-xs text-[#55625A] tabular-nums">
             <span className="inline-flex items-center gap-1.5">
               <RouteIcon className="w-3.5 h-3.5 text-[#0F522B]" />
@@ -1027,7 +1156,7 @@ export const BookingPanel: React.FC<BookingPanelProps> = ({
               </span>
             </div>
           </div>
-        </div>
+        </motion.div>
       ) : (
         <div className="px-4 py-3 rounded-2xl glass-surface text-xs text-[#55625A]">
           {stopsAreIdentical
@@ -1038,13 +1167,24 @@ export const BookingPanel: React.FC<BookingPanelProps> = ({
 
       <button
         type="button"
-        disabled={!pickup || !destination || !fare || stopsAreIdentical}
+        disabled={
+          !pickup ||
+          !destination ||
+          !fare ||
+          stopsAreIdentical ||
+          isCalculatingRoute ||
+          isBookingRide
+        }
         onClick={onBookRide}
-        className="w-full h-12 rounded-xl bg-[#0F522B] hover:bg-[#146C3A] disabled:bg-[#DCE4DF] disabled:text-[#7E8C84] text-white font-bold text-sm transition-all active:scale-[0.99] shadow-lg"
+        className="w-full h-12 rounded-xl bg-[#0F522B] hover:bg-[#146C3A] disabled:bg-[#DCE4DF] disabled:text-[#7E8C84] text-white font-bold text-sm smooth-press shadow-lg flex items-center justify-center gap-2"
       >
-        {pickup && destination && fare && !stopsAreIdentical
-          ? `Book ${vehicleType === 'motorcycle' ? 'Moto' : 'Taxi'} (${selectedPayment?.label || 'Cash'}) · ${formatPhp(fare.finalFare)}`
-          : 'Select Pickup & Destination'}
+        {isBookingRide ? (
+          <LoadingSpinner size="xs" tone="white" label="Booking your ride..." />
+        ) : pickup && destination && fare && !stopsAreIdentical ? (
+          `Book ${vehicleType === 'motorcycle' ? 'Moto' : 'Taxi'} (${selectedPayment?.label || 'Cash'}) · ${formatPhp(fare.finalFare)}`
+        ) : (
+          'Select Pickup & Destination'
+        )}
       </button>
     </div>
   );

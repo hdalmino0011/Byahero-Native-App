@@ -1,6 +1,7 @@
 import React, {useEffect} from 'react';
 import {motion, AnimatePresence} from 'motion/react';
 import {ByaheroMotorcycleVector, ByaheroWordmarkVector} from './VectorGraphics';
+import {LoadingSpinner} from './LoadingSpinner';
 
 interface SplashIntroProps {
   visible: boolean;
@@ -26,7 +27,6 @@ export const SplashIntro: React.FC<SplashIntroProps> = ({visible, onFinish}) => 
           transition={{duration: 0.45, ease: [0.16, 1, 0.3, 1]}}
           className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-[#060908] text-white px-6 overflow-hidden select-none"
         >
-          {/* Subtle ambient dark-green radial glow */}
           <div
             className="pointer-events-none absolute inset-0"
             style={{
@@ -35,7 +35,6 @@ export const SplashIntro: React.FC<SplashIntroProps> = ({visible, onFinish}) => 
             }}
           />
 
-          {/* Center Vector Motorcycle + BYAHERO + by HDDEV */}
           <div className="relative z-10 flex flex-col items-center text-center">
             <motion.div
               initial={{x: -90, opacity: 0, scale: 0.9}}
@@ -46,7 +45,6 @@ export const SplashIntro: React.FC<SplashIntroProps> = ({visible, onFinish}) => 
               <ByaheroMotorcycleVector className="w-52 h-28 drop-shadow-[0_14px_28px_rgba(16,185,129,0.25)]" />
             </motion.div>
 
-            {/* Vector Road Divider Line */}
             <motion.div
               initial={{scaleX: 0, opacity: 0}}
               animate={{scaleX: 1, opacity: 1}}
@@ -74,6 +72,15 @@ export const SplashIntro: React.FC<SplashIntroProps> = ({visible, onFinish}) => 
             >
               by HDDEV
             </motion.p>
+
+            <motion.div
+              initial={{opacity: 0}}
+              animate={{opacity: 1}}
+              transition={{duration: 0.5, delay: 0.85}}
+              className="mt-7"
+            >
+              <LoadingSpinner size="sm" tone="white" />
+            </motion.div>
           </div>
         </motion.div>
       )}

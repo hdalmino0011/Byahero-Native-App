@@ -11,7 +11,8 @@ import {
   useMapsLibrary,
   APILoadingStatus,
 } from '@vis.gl/react-google-maps';
-import {Crosshair, MapPin, Minus, Navigation, Plus, Search, Star, X} from 'lucide-react';
+import {Crosshair, MapPin, Navigation, Search, Star, X} from 'lucide-react';
+import {AnimatePresence, motion} from 'motion/react';
 import {
   DiscoveredPlace,
   LatLngPoint,
@@ -26,6 +27,7 @@ import {
   useAutocompleteSuggestions,
 } from '../hooks/useAutocompleteSuggestions';
 import {FastFoodVectorIcon, ResortBeachVectorIcon} from './VectorGraphics';
+import {LoadingSpinner} from './LoadingSpinner';
 
 const HAS_CONFIGURED_MAPS_KEY = Boolean(
   (import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string) &&
@@ -51,6 +53,10 @@ interface GoogleMapsWorkspaceProps {
   onRecenterUser: () => void;
   onCancelMapTap: () => void;
   onSearchingPlacesChange: (loading: boolean, error: string | null) => void;
+  isSearchingPlaces?: boolean;
+  isLocatingGps?: boolean;
+  isCalculatingRoute?: boolean;
+  onCalculatingRouteChange?: (calculating: boolean) => void;
   triggerCategoryQuery: {category: 'fast_food' | 'resort_beach'; seq: number} | null;
 }
 
@@ -232,18 +238,45 @@ const Interactive2026TileMap: React.FC<{
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({width: 800, height: 600});
+  const [loadedTiles, setLoadedTiles] = useState<Record<string, boolean>>({});
+  const pointersRef = useRef<Map<number, {x: number; y: number}>>(new Map());
+  const latestStateRef = useRef({center: centerTarget, zoom, size});
+  latestStateRef.current = {center: centerTarget, zoom, size};
+
   const dragStateRef = useRef<{
     dragging: boolean;
     startX: number;
     startY: number;
     moved: boolean;
+    wasPinching: boolean;
     startCenter: LatLngPoint;
+    startZoom: number;
   }>({
     dragging: false,
     startX: 0,
     startY: 0,
     moved: false,
+    wasPinching: false,
     startCenter: centerTarget,
+    startZoom: zoom,
+  });
+
+  const pinchStateRef = useRef<{
+    active: boolean;
+    initialDist: number;
+    initialZoom: number;
+    anchorLatLng: LatLngPoint;
+  }>({
+    active: false,
+    initialDist: 1,
+    initialZoom: zoom,
+    anchorLatLng: centerTarget,
+  });
+
+  const lastTapRef = useRef<{time: number; x: number; y: number}>({
+    time: 0,
+    x: 0,
+    y: 0,
   });
 
   useEffect(() => {
@@ -261,20 +294,53 @@ const Interactive2026TileMap: React.FC<{
     return () => ro.disconnect();
   }, []);
 
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const handleWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      const cursorX = e.clientX - rect.left;
+      const cursorY = e.clientY - rect.top;
+      const {center, zoom: curZoom, size: curSize} = latestStateRef.current;
+      const halfW = curSize.width / 2;
+      const halfH = curSize.height / 2;
+      const oldScale = 256 * Math.pow(2, curZoom);
+      const oldWorldX = lngToWorldX(center.lng, oldScale) + (cursorX - halfW);
+      const oldWorldY = latToWorldY(center.lat, oldScale) + (cursorY - halfH);
+      const anchor = worldToLatLng(oldWorldX, oldWorldY, oldScale);
+
+      const zoomDelta = -e.deltaY * (e.ctrlKey ? 0.012 : 0.0025);
+      const nextZoom = Math.max(3, Math.min(19, curZoom + zoomDelta));
+      const newScale = 256 * Math.pow(2, nextZoom);
+      const nextCenterWorldX = lngToWorldX(anchor.lng, newScale) - (cursorX - halfW);
+      const nextCenterWorldY = latToWorldY(anchor.lat, newScale) - (cursorY - halfH);
+
+      onZoomChange(nextZoom);
+      onCenterChange(worldToLatLng(nextCenterWorldX, nextCenterWorldY, newScale));
+    };
+    el.addEventListener('wheel', handleWheel, {passive: false});
+    return () => el.removeEventListener('wheel', handleWheel);
+  }, [onCenterChange, onZoomChange]);
+
+  const clampedZoom = Math.max(3, Math.min(19, zoom));
+  const tileZoom = Math.floor(clampedZoom);
+  const zoomScaleFactor = Math.pow(2, clampedZoom - tileZoom);
   const tilePx = 256;
-  const scale = tilePx * Math.pow(2, zoom);
+  const renderedTilePx = tilePx * zoomScaleFactor;
+  const scale = tilePx * Math.pow(2, clampedZoom);
   const centerWorldX = lngToWorldX(centerTarget.lng, scale);
   const centerWorldY = latToWorldY(centerTarget.lat, scale);
   const halfW = size.width / 2;
   const halfH = size.height / 2;
-  const maxTileIdx = 1 << zoom;
+  const maxTileIdx = 1 << tileZoom;
 
-  const minTx = Math.floor((centerWorldX - halfW) / tilePx);
-  const maxTx = Math.floor((centerWorldX + halfW) / tilePx);
-  const minTy = Math.max(0, Math.floor((centerWorldY - halfH) / tilePx));
+  const minTx = Math.floor((centerWorldX - halfW) / renderedTilePx);
+  const maxTx = Math.floor((centerWorldX + halfW) / renderedTilePx);
+  const minTy = Math.max(0, Math.floor((centerWorldY - halfH) / renderedTilePx));
   const maxTy = Math.min(
     maxTileIdx - 1,
-    Math.floor((centerWorldY + halfH) / tilePx)
+    Math.floor((centerWorldY + halfH) / renderedTilePx)
   );
 
   const tiles: Array<{key: string; url: string; left: number; top: number}> = [];
@@ -282,16 +348,19 @@ const Interactive2026TileMap: React.FC<{
     for (let txRaw = minTx; txRaw <= maxTx; txRaw++) {
       const tx = ((txRaw % maxTileIdx) + maxTileIdx) % maxTileIdx;
       const shard = (tx + ty) & 3;
-      const left = Math.round(txRaw * tilePx - centerWorldX + halfW);
-      const top = Math.round(ty * tilePx - centerWorldY + halfH);
+      const left = Math.round(txRaw * renderedTilePx - centerWorldX + halfW);
+      const top = Math.round(ty * renderedTilePx - centerWorldY + halfH);
       tiles.push({
-        key: `${zoom}_${txRaw}_${ty}`,
-        url: `https://mt${shard}.google.com/vt/lyrs=m&x=${tx}&y=${ty}&z=${zoom}&hl=en&scale=2`,
+        key: `${tileZoom}_${txRaw}_${ty}`,
+        url: `https://mt${shard}.google.com/vt/lyrs=m&x=${tx}&y=${ty}&z=${tileZoom}&hl=en&scale=2`,
         left,
         top,
       });
     }
   }
+
+  const hasVisibleTilesLoading =
+    tiles.length > 0 && tiles.some((t) => !loadedTiles[t.key]);
 
   const project = (pt: LatLngPoint) => ({
     x: lngToWorldX(pt.lng, scale) - centerWorldX + halfW,
@@ -304,65 +373,180 @@ const Interactive2026TileMap: React.FC<{
     ? project({lat: destination.lat, lng: destination.lng})
     : null;
 
+  const startPinchFromPointers = (rect: DOMRect) => {
+    const pts = Array.from(pointersRef.current.values());
+    if (pts.length < 2) return;
+    const dx = pts[1].x - pts[0].x;
+    const dy = pts[1].y - pts[0].y;
+    const dist = Math.max(10, Math.hypot(dx, dy));
+    const midX = (pts[0].x + pts[1].x) / 2 - rect.left;
+    const midY = (pts[0].y + pts[1].y) / 2 - rect.top;
+    const curScale = 256 * Math.pow(2, latestStateRef.current.zoom);
+    const curCenter = latestStateRef.current.center;
+    const curHalfW = latestStateRef.current.size.width / 2;
+    const curHalfH = latestStateRef.current.size.height / 2;
+    const worldX = lngToWorldX(curCenter.lng, curScale) + (midX - curHalfW);
+    const worldY = latToWorldY(curCenter.lat, curScale) + (midY - curHalfH);
+
+    pinchStateRef.current = {
+      active: true,
+      initialDist: dist,
+      initialZoom: latestStateRef.current.zoom,
+      anchorLatLng: worldToLatLng(worldX, worldY, curScale),
+    };
+    dragStateRef.current.dragging = false;
+    dragStateRef.current.wasPinching = true;
+    dragStateRef.current.moved = true;
+  };
+
   return (
     <div
       ref={containerRef}
       onPointerDown={(e) => {
         if ((e.target as HTMLElement).closest('button')) return;
         e.currentTarget.setPointerCapture(e.pointerId);
-        dragStateRef.current = {
-          dragging: true,
-          startX: e.clientX,
-          startY: e.clientY,
-          moved: false,
-          startCenter: centerTarget,
-        };
+        pointersRef.current.set(e.pointerId, {x: e.clientX, y: e.clientY});
+
+        if (pointersRef.current.size >= 2) {
+          startPinchFromPointers(e.currentTarget.getBoundingClientRect());
+        } else {
+          pinchStateRef.current.active = false;
+          dragStateRef.current = {
+            dragging: true,
+            startX: e.clientX,
+            startY: e.clientY,
+            moved: false,
+            wasPinching: false,
+            startCenter: centerTarget,
+            startZoom: clampedZoom,
+          };
+        }
       }}
       onPointerMove={(e) => {
+        if (!pointersRef.current.has(e.pointerId)) return;
+        pointersRef.current.set(e.pointerId, {x: e.clientX, y: e.clientY});
+
+        if (pointersRef.current.size >= 2 && pinchStateRef.current.active) {
+          const pts = Array.from(pointersRef.current.values());
+          const dx = pts[1].x - pts[0].x;
+          const dy = pts[1].y - pts[0].y;
+          const dist = Math.max(10, Math.hypot(dx, dy));
+          const rect = e.currentTarget.getBoundingClientRect();
+          const midX = (pts[0].x + pts[1].x) / 2 - rect.left;
+          const midY = (pts[0].y + pts[1].y) / 2 - rect.top;
+
+          const zoomDelta = Math.log2(dist / pinchStateRef.current.initialDist);
+          const nextZoom = Math.max(
+            3,
+            Math.min(19, pinchStateRef.current.initialZoom + zoomDelta)
+          );
+          const nextScale = 256 * Math.pow(2, nextZoom);
+          const anchor = pinchStateRef.current.anchorLatLng;
+          const nextCenterWx = lngToWorldX(anchor.lng, nextScale) - (midX - halfW);
+          const nextCenterWy = latToWorldY(anchor.lat, nextScale) - (midY - halfH);
+
+          onZoomChange(nextZoom);
+          onCenterChange(worldToLatLng(nextCenterWx, nextCenterWy, nextScale));
+          return;
+        }
+
         if (!dragStateRef.current.dragging) return;
         const dx = e.clientX - dragStateRef.current.startX;
         const dy = e.clientY - dragStateRef.current.startY;
         if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
           dragStateRef.current.moved = true;
         }
-        const startWx = lngToWorldX(dragStateRef.current.startCenter.lng, scale);
-        const startWy = latToWorldY(dragStateRef.current.startCenter.lat, scale);
-        onCenterChange(worldToLatLng(startWx - dx, startWy - dy, scale));
+        const panScale = 256 * Math.pow(2, dragStateRef.current.startZoom);
+        const startWx = lngToWorldX(dragStateRef.current.startCenter.lng, panScale);
+        const startWy = latToWorldY(dragStateRef.current.startCenter.lat, panScale);
+        onCenterChange(worldToLatLng(startWx - dx, startWy - dy, panScale));
       }}
       onPointerUp={(e) => {
-        if (!dragStateRef.current.dragging) return;
+        pointersRef.current.delete(e.pointerId);
+
+        if (pointersRef.current.size === 1) {
+          pinchStateRef.current.active = false;
+          const remaining = Array.from(pointersRef.current.values())[0];
+          dragStateRef.current = {
+            dragging: true,
+            startX: remaining.x,
+            startY: remaining.y,
+            moved: true,
+            wasPinching: true,
+            startCenter: latestStateRef.current.center,
+            startZoom: latestStateRef.current.zoom,
+          };
+          return;
+        }
+
         const wasMoved = dragStateRef.current.moved;
+        const wasPinching = dragStateRef.current.wasPinching;
         dragStateRef.current.dragging = false;
-        if (!wasMoved) {
+        pinchStateRef.current.active = false;
+
+        if (!wasMoved && !wasPinching) {
           const rect = e.currentTarget.getBoundingClientRect();
           const clickX = e.clientX - rect.left;
           const clickY = e.clientY - rect.top;
-          const wx = centerWorldX + (clickX - halfW);
-          const wy = centerWorldY + (clickY - halfH);
-          onMapTap(worldToLatLng(wx, wy, scale));
+          const now = Date.now();
+          const distFromLast = Math.hypot(
+            clickX - lastTapRef.current.x,
+            clickY - lastTapRef.current.y
+          );
+
+          if (now - lastTapRef.current.time < 280 && distFromLast < 28) {
+            lastTapRef.current = {time: 0, x: 0, y: 0};
+            const wx = centerWorldX + (clickX - halfW);
+            const wy = centerWorldY + (clickY - halfH);
+            const tapAnchor = worldToLatLng(wx, wy, scale);
+            const nextZoom = Math.min(19, clampedZoom + 1);
+            const nextScale = 256 * Math.pow(2, nextZoom);
+            const nextCenterWx = lngToWorldX(tapAnchor.lng, nextScale) - (clickX - halfW);
+            const nextCenterWy = latToWorldY(tapAnchor.lat, nextScale) - (clickY - halfH);
+            onZoomChange(nextZoom);
+            onCenterChange(worldToLatLng(nextCenterWx, nextCenterWy, nextScale));
+          } else {
+            lastTapRef.current = {time: now, x: clickX, y: clickY};
+            const wx = centerWorldX + (clickX - halfW);
+            const wy = centerWorldY + (clickY - halfH);
+            onMapTap(worldToLatLng(wx, wy, scale));
+          }
+        }
+      }}
+      onPointerCancel={(e) => {
+        pointersRef.current.delete(e.pointerId);
+        if (pointersRef.current.size < 2) {
+          pinchStateRef.current.active = false;
+        }
+        if (pointersRef.current.size === 0) {
+          dragStateRef.current.dragging = false;
         }
       }}
       className="relative w-full h-full bg-[#E8EEF1] overflow-hidden select-none cursor-grab active:cursor-grabbing touch-none"
     >
-      {/* 2026 High-DPI Google Maps Road Tiles */}
       {tiles.map((t) => (
         <img
           key={t.key}
           src={t.url}
           alt=""
           draggable={false}
+          onLoad={() =>
+            setLoadedTiles((prev) => (prev[t.key] ? prev : {...prev, [t.key]: true}))
+          }
+          onError={() =>
+            setLoadedTiles((prev) => (prev[t.key] ? prev : {...prev, [t.key]: true}))
+          }
           style={{
             position: 'absolute',
             left: `${t.left}px`,
             top: `${t.top}px`,
-            width: `${tilePx}px`,
-            height: `${tilePx}px`,
+            width: `${Math.ceil(renderedTilePx) + 1}px`,
+            height: `${Math.ceil(renderedTilePx) + 1}px`,
           }}
           className="pointer-events-none max-w-none"
         />
       ))}
 
-      {/* Route Line between Pickup and Destination */}
       {pickupPos && destPos && (
         <svg className="absolute inset-0 w-full h-full pointer-events-none">
           <line
@@ -387,7 +571,6 @@ const Interactive2026TileMap: React.FC<{
         </svg>
       )}
 
-      {/* User Live GPS Marker */}
       <div
         style={{
           left: `${userPos.x}px`,
@@ -400,7 +583,6 @@ const Interactive2026TileMap: React.FC<{
         <span className="relative w-4 h-4 rounded-full bg-[#0F522B] border-2 border-white shadow-md" />
       </div>
 
-      {/* Pickup Marker */}
       {pickupPos && (
         <div
           style={{
@@ -414,7 +596,6 @@ const Interactive2026TileMap: React.FC<{
         </div>
       )}
 
-      {/* Destination Marker */}
       {destPos && (
         <div
           style={{
@@ -428,7 +609,6 @@ const Interactive2026TileMap: React.FC<{
         </div>
       )}
 
-      {/* Discovered Places Markers */}
       {discoveredPlaces.map((place) => {
         const pt = project({lat: place.lat, lng: place.lng});
         const isSelected = selectedPlace?.id === place.id;
@@ -450,7 +630,7 @@ const Interactive2026TileMap: React.FC<{
                 e.stopPropagation();
                 onSelectPlace(place);
               }}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border shadow-lg transition-transform backdrop-blur-md ${
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border shadow-lg transition-transform duration-200 backdrop-blur-md ${
                 isSelected
                   ? 'scale-110 bg-[#0F522B] text-white border-white'
                   : isFastFood
@@ -476,68 +656,67 @@ const Interactive2026TileMap: React.FC<{
               </span>
             </button>
 
-            {isSelected && (
-              <div
-                onClick={(e) => e.stopPropagation()}
-                className="mt-1.5 w-56 p-2.5 rounded-2xl bg-white text-[#101713] border border-[#0F522B]/20 shadow-2xl"
-              >
-                <div className="font-bold text-xs leading-tight truncate">
-                  {place.name}
-                </div>
-                <div className="text-[11px] text-[#55625A] mt-0.5 line-clamp-2">
-                  {place.address}
-                </div>
-                {place.distanceKm !== undefined && (
-                  <div className="text-[11px] text-[#0F522B] font-semibold mt-1">
-                    {place.distanceKm.toFixed(1)} km away
+            <AnimatePresence>
+              {isSelected && (
+                <motion.div
+                  initial={{opacity: 0, y: 6, scale: 0.96}}
+                  animate={{opacity: 1, y: 0, scale: 1}}
+                  exit={{opacity: 0, y: 4, scale: 0.96}}
+                  transition={{duration: 0.18, ease: [0.16, 1, 0.3, 1]}}
+                  onClick={(e) => e.stopPropagation()}
+                  className="mt-1.5 w-56 p-2.5 rounded-2xl bg-white text-[#101713] border border-[#0F522B]/20 shadow-2xl"
+                >
+                  <div className="font-bold text-xs leading-tight truncate">
+                    {place.name}
                   </div>
-                )}
-                <div className="mt-2 flex gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => onSetPickup(place)}
-                    className="flex-1 h-8 rounded-lg bg-[#EBF1ED] text-[#0F522B] text-[11px] font-bold hover:bg-[#DCE7E0]"
-                  >
-                    Set Pickup
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onBookHere(place)}
-                    className="flex-1 h-8 rounded-lg bg-[#0F522B] text-white text-[11px] font-bold hover:bg-[#146C3A]"
-                  >
-                    Set Dest
-                  </button>
-                </div>
-              </div>
-            )}
+                  <div className="text-[11px] text-[#55625A] mt-0.5 line-clamp-2">
+                    {place.address}
+                  </div>
+                  {place.distanceKm !== undefined && (
+                    <div className="text-[11px] text-[#0F522B] font-semibold mt-1 tabular-nums">
+                      {place.distanceKm.toFixed(1)} km away
+                    </div>
+                  )}
+                  <div className="mt-2 flex gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => onSetPickup(place)}
+                      className="flex-1 h-8 rounded-lg bg-[#EBF1ED] text-[#0F522B] text-[11px] font-bold hover:bg-[#DCE7E0] smooth-press"
+                    >
+                      Set Pickup
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onBookHere(place)}
+                      className="flex-1 h-8 rounded-lg bg-[#0F522B] text-white text-[11px] font-bold hover:bg-[#146C3A] smooth-press"
+                    >
+                      Set Dest
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         );
       })}
 
-      {/* Bottom-left Google 2026 Attribution */}
+      <AnimatePresence>
+        {hasVisibleTilesLoading && (
+          <motion.div
+            initial={{opacity: 0, scale: 0.92}}
+            animate={{opacity: 1, scale: 1}}
+            exit={{opacity: 0, scale: 0.92}}
+            transition={{duration: 0.18}}
+            className="pointer-events-none absolute bottom-3 right-3 z-10 px-2.5 py-1.5 rounded-full bg-white/90 backdrop-blur-md border border-[#0F522B]/15 shadow-md flex items-center"
+          >
+            <LoadingSpinner size="xs" tone="green" label="Loading map..." />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="pointer-events-none absolute bottom-2 left-2.5 px-2 py-0.5 rounded bg-white/88 text-[10px] text-[#55625A] flex items-center gap-1.5 shadow-sm">
         <span className="font-bold text-[#3C4043]">Google</span>
         <span>Map data ©2026 Google</span>
-      </div>
-
-      {/* Bottom-right Zoom Controls */}
-      <div className="absolute bottom-3 right-3 flex flex-col gap-1.5 z-10">
-        <button
-          type="button"
-          onClick={() => onZoomChange(Math.min(19, zoom + 1))}
-          aria-label="Zoom in"
-          className="w-9 h-9 rounded-full bg-white/95 hover:bg-white border border-[#0F522B]/15 shadow-md flex items-center justify-center text-[#101713]"
-        >
-          <Plus className="w-4 h-4" />
-        </button>
-        <button
-          type="button"
-          onClick={() => onZoomChange(Math.max(3, zoom - 1))}
-          aria-label="Zoom out"
-          className="w-9 h-9 rounded-full bg-white/95 hover:bg-white border border-[#0F522B]/15 shadow-md flex items-center justify-center text-[#101713]"
-        >
-          <Minus className="w-4 h-4" />
-        </button>
       </div>
     </div>
   );
@@ -652,6 +831,10 @@ export const GoogleMapsWorkspace: React.FC<GoogleMapsWorkspaceProps> = ({
   onRecenterUser,
   onCancelMapTap,
   onSearchingPlacesChange,
+  isSearchingPlaces = false,
+  isLocatingGps = false,
+  isCalculatingRoute = false,
+  onCalculatingRouteChange,
   triggerCategoryQuery,
 }) => {
   const map = useMap();
@@ -663,6 +846,7 @@ export const GoogleMapsWorkspace: React.FC<GoogleMapsWorkspaceProps> = ({
   const polylinesRef = useRef<google.maps.Polyline[]>([]);
   const [searchInput, setSearchInput] = useState('');
   const [activeSearchFocus, setActiveSearchFocus] = useState(false);
+  const [resolvingSuggestionId, setResolvingSuggestionId] = useState<string | null>(null);
   const [fallbackCenter, setFallbackCenter] = useState<LatLngPoint>(userLocation);
   const [fallbackZoom, setFallbackZoom] = useState<number>(15);
 
@@ -723,6 +907,7 @@ export const GoogleMapsWorkspace: React.FC<GoogleMapsWorkspaceProps> = ({
     const mode = vehicleType === 'motorcycle' ? 'TWO_WHEELER' : 'DRIVING';
 
     const compute = async () => {
+      onCalculatingRouteChange?.(true);
       try {
         const request = {
           origin,
@@ -790,6 +975,10 @@ export const GoogleMapsWorkspace: React.FC<GoogleMapsWorkspaceProps> = ({
         });
         polylinesRef.current = [fallbackLine];
         onRouteCalculated(Number(straightKm.toFixed(2)), mins);
+      } finally {
+        if (!cancelled) {
+          onCalculatingRouteChange?.(false);
+        }
       }
     };
 
@@ -797,10 +986,20 @@ export const GoogleMapsWorkspace: React.FC<GoogleMapsWorkspaceProps> = ({
 
     return () => {
       cancelled = true;
+      onCalculatingRouteChange?.(false);
       polylinesRef.current.forEach((p) => p.setMap(null));
       polylinesRef.current = [];
     };
-  }, [routesLib, map, pickup, destination, vehicleType, useFallbackTileMap, onRouteCalculated]);
+  }, [
+    routesLib,
+    map,
+    pickup,
+    destination,
+    vehicleType,
+    useFallbackTileMap,
+    onRouteCalculated,
+    onCalculatingRouteChange,
+  ]);
 
   const runPlacesDiscovery = useCallback(
     async (category: 'fast_food' | 'resort_beach' | 'search', customQuery?: string) => {
@@ -957,7 +1156,9 @@ export const GoogleMapsWorkspace: React.FC<GoogleMapsWorkspaceProps> = ({
     item: PlaceSuggestionItem,
     assignAs?: 'pickup' | 'destination'
   ) => {
+    setResolvingSuggestionId(item.id);
     const resolved = await resolvePlace(item);
+    setResolvingSuggestionId(null);
     if (!resolved) return;
 
     setSearchInput(resolved.label);
@@ -1006,13 +1207,18 @@ export const GoogleMapsWorkspace: React.FC<GoogleMapsWorkspaceProps> = ({
 
   return (
     <div className="relative w-full h-full bg-[#E8EFEA] overflow-hidden">
-      {/* Top Floating Frosted Glass Search & Quick Discovery Controls */}
       <div className="absolute top-3 left-3 right-3 z-20 flex flex-col gap-2 pointer-events-none">
         <form
           onSubmit={handleSearchSubmit}
-          className="pointer-events-auto relative flex items-center bg-white/85 backdrop-blur-xl border border-white/90 rounded-2xl shadow-[0_10px_28px_-8px_rgba(15,82,43,0.2)]"
+          className="pointer-events-auto relative flex items-center bg-white/85 backdrop-blur-xl border border-white/90 rounded-2xl shadow-[0_10px_28px_-8px_rgba(15,82,43,0.2)] transition-shadow focus-within:shadow-[0_12px_32px_-8px_rgba(15,82,43,0.3)]"
         >
-          <Search className="w-4 h-4 text-[#0F522B] ml-3.5 shrink-0" />
+          {suggestionsLoading || isSearchingPlaces ? (
+            <div className="ml-3.5 shrink-0 flex items-center">
+              <LoadingSpinner size="xs" tone="green" />
+            </div>
+          ) : (
+            <Search className="w-4 h-4 text-[#0F522B] ml-3.5 shrink-0" />
+          )}
           <input
             type="text"
             value={searchInput}
@@ -1033,82 +1239,109 @@ export const GoogleMapsWorkspace: React.FC<GoogleMapsWorkspaceProps> = ({
                 resetSession();
               }}
               aria-label="Clear map search"
-              className="min-h-[44px] min-w-[44px] flex items-center justify-center text-[#55625A] hover:text-[#101713]"
+              className="min-h-[44px] min-w-[44px] flex items-center justify-center text-[#55625A] hover:text-[#101713] transition-colors"
             >
               <X className="w-4 h-4" />
             </button>
           )}
           <button
             type="submit"
-            className="mr-1.5 px-3.5 h-8 rounded-xl bg-[#0F522B] hover:bg-[#146C3A] text-white text-xs font-semibold whitespace-nowrap shrink-0 transition-colors"
+            disabled={isSearchingPlaces}
+            className="mr-1.5 px-3.5 h-8 rounded-xl bg-[#0F522B] hover:bg-[#146C3A] disabled:opacity-75 text-white text-xs font-semibold whitespace-nowrap shrink-0 smooth-press flex items-center justify-center gap-1.5"
           >
-            Find
+            {isSearchingPlaces ? (
+              <LoadingSpinner size="xs" tone="white" />
+            ) : (
+              'Find'
+            )}
           </button>
         </form>
 
-        {/* Autocomplete Dropdown */}
-        {activeSearchFocus && (suggestions.length > 0 || suggestionsLoading) && (
-          <div className="pointer-events-auto bg-white/92 backdrop-blur-xl border border-white rounded-2xl shadow-2xl overflow-hidden divide-y divide-[#0F522B]/10">
-            {suggestionsLoading && suggestions.length === 0 && (
-              <div className="px-4 py-3 text-xs text-[#55625A]">Searching places...</div>
-            )}
-            {suggestions.map((s) => (
-              <div
-                key={s.id}
-                className="w-full min-h-[48px] px-3.5 py-2.5 hover:bg-[#0F522B]/5 transition-colors flex items-center justify-between gap-2"
-              >
-                <button
-                  type="button"
-                  onClick={() => void handleSearchSuggestionSelect(s)}
-                  className="flex-1 min-w-0 text-left flex items-start gap-2.5"
-                >
-                  <MapPin className="w-4 h-4 text-[#0F522B] mt-0.5 shrink-0" />
-                  <div className="min-w-0">
-                    <div className="text-xs font-semibold text-[#101713] truncate">
-                      {s.mainText}
-                    </div>
-                    {s.secondaryText && (
-                      <div className="text-[11px] text-[#55625A] truncate">
-                        {s.secondaryText}
-                      </div>
-                    )}
-                  </div>
-                </button>
-                <div className="flex items-center gap-1 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => void handleSearchSuggestionSelect(s, 'pickup')}
-                    className="h-7 px-2 rounded-lg bg-[#EBF1ED] hover:bg-[#DCE7E0] text-[#0F522B] text-[10px] font-bold whitespace-nowrap"
-                  >
-                    Pickup
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void handleSearchSuggestionSelect(s, 'destination')}
-                    className="h-7 px-2 rounded-lg bg-[#0F522B] hover:bg-[#146C3A] text-white text-[10px] font-bold whitespace-nowrap"
-                  >
-                    Dest
-                  </button>
+        <AnimatePresence>
+          {activeSearchFocus && (suggestions.length > 0 || suggestionsLoading) && (
+            <motion.div
+              initial={{opacity: 0, y: -6, scale: 0.99}}
+              animate={{opacity: 1, y: 0, scale: 1}}
+              exit={{opacity: 0, y: -6, scale: 0.99}}
+              transition={{duration: 0.18, ease: [0.16, 1, 0.3, 1]}}
+              className="pointer-events-auto bg-white/94 backdrop-blur-xl border border-white rounded-2xl shadow-2xl overflow-hidden divide-y divide-[#0F522B]/10"
+            >
+              {suggestionsLoading && suggestions.length === 0 && (
+                <div className="px-4 py-3 flex items-center gap-2">
+                  <LoadingSpinner size="xs" tone="green" label="Searching places..." />
                 </div>
-              </div>
-            ))}
-          </div>
-        )}
+              )}
+              {suggestions.map((s) => {
+                const isResolvingThis = resolvingSuggestionId === s.id;
+                return (
+                  <div
+                    key={s.id}
+                    className="w-full min-h-[48px] px-3.5 py-2.5 hover:bg-[#0F522B]/5 transition-colors flex items-center justify-between gap-2"
+                  >
+                    <button
+                      type="button"
+                      disabled={isResolvingThis}
+                      onClick={() => void handleSearchSuggestionSelect(s)}
+                      className="flex-1 min-w-0 text-left flex items-start gap-2.5"
+                    >
+                      {isResolvingThis ? (
+                        <div className="mt-0.5 shrink-0">
+                          <LoadingSpinner size="xs" tone="green" />
+                        </div>
+                      ) : (
+                        <MapPin className="w-4 h-4 text-[#0F522B] mt-0.5 shrink-0" />
+                      )}
+                      <div className="min-w-0">
+                        <div className="text-xs font-semibold text-[#101713] truncate">
+                          {s.mainText}
+                        </div>
+                        {s.secondaryText && (
+                          <div className="text-[11px] text-[#55625A] truncate">
+                            {s.secondaryText}
+                          </div>
+                        )}
+                      </div>
+                    </button>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        disabled={isResolvingThis}
+                        onClick={() => void handleSearchSuggestionSelect(s, 'pickup')}
+                        className="h-7 px-2 rounded-lg bg-[#EBF1ED] hover:bg-[#DCE7E0] text-[#0F522B] text-[10px] font-bold whitespace-nowrap smooth-press"
+                      >
+                        Pickup
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isResolvingThis}
+                        onClick={() => void handleSearchSuggestionSelect(s, 'destination')}
+                        className="h-7 px-2 rounded-lg bg-[#0F522B] hover:bg-[#146C3A] text-white text-[10px] font-bold whitespace-nowrap smooth-press"
+                      >
+                        Dest
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-        {/* Quick Nearby Vector Filter Buttons */}
         <div className="pointer-events-auto flex items-center gap-2 overflow-x-auto no-scrollbar pb-0.5">
           <button
             type="button"
+            disabled={isSearchingPlaces}
             onClick={() => void runPlacesDiscovery('fast_food')}
-            className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-white/85 backdrop-blur-xl border border-white/90 hover:border-[#0F522B] text-xs font-semibold text-[#101713] flex items-center gap-1.5 whitespace-nowrap shrink-0 shadow-md transition-colors"
+            className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-white/85 backdrop-blur-xl border border-white/90 hover:border-[#0F522B] text-xs font-semibold text-[#101713] flex items-center gap-1.5 whitespace-nowrap shrink-0 shadow-md smooth-press disabled:opacity-70"
           >
             <FastFoodVectorIcon className="w-3.5 h-3.5 text-amber-600" />
             <span>Fast Food Nearby</span>
           </button>
           <button
             type="button"
+            disabled={isSearchingPlaces}
             onClick={() => void runPlacesDiscovery('resort_beach')}
-            className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-white/85 backdrop-blur-xl border border-white/90 hover:border-[#0F522B] text-xs font-semibold text-[#101713] flex items-center gap-1.5 whitespace-nowrap shrink-0 shadow-md transition-colors"
+            className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-white/85 backdrop-blur-xl border border-white/90 hover:border-[#0F522B] text-xs font-semibold text-[#101713] flex items-center gap-1.5 whitespace-nowrap shrink-0 shadow-md smooth-press disabled:opacity-70"
           >
             <ResortBeachVectorIcon className="w-3.5 h-3.5 text-[#0F522B]" />
             <span>Resorts & Beaches</span>
@@ -1125,33 +1358,68 @@ export const GoogleMapsWorkspace: React.FC<GoogleMapsWorkspaceProps> = ({
               }
             }}
             aria-label="Recenter on my GPS location"
-            className="min-h-[38px] px-3 py-1.5 rounded-xl bg-[#0F522B]/92 backdrop-blur-xl border border-white/25 text-xs font-semibold text-white flex items-center gap-1.5 whitespace-nowrap shrink-0 shadow-md hover:bg-[#146C3A] transition-colors"
+            className="min-h-[38px] px-3 py-1.5 rounded-xl bg-[#0F522B]/92 backdrop-blur-xl border border-white/25 text-xs font-semibold text-white flex items-center gap-1.5 whitespace-nowrap shrink-0 shadow-md hover:bg-[#146C3A] smooth-press"
           >
-            <Crosshair className="w-3.5 h-3.5" />
-            <span>My GPS</span>
+            {isLocatingGps ? (
+              <LoadingSpinner size="xs" tone="white" />
+            ) : (
+              <Crosshair className="w-3.5 h-3.5" />
+            )}
+            <span>{isLocatingGps ? 'Locating...' : 'My GPS'}</span>
           </button>
         </div>
 
-        {/* Map Tap Picker Banner */}
-        {mapSelectionTarget && (
-          <div className="pointer-events-auto flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl glass-green text-white shadow-lg">
-            <div className="flex items-center gap-2 text-xs font-semibold">
-              <Navigation className="w-4 h-4 shrink-0" />
-              <span>
-                Tap anywhere on the map to set{' '}
-                {mapSelectionTarget === 'pickup' ? 'Pickup' : 'Destination'}
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={onCancelMapTap}
-              className="px-2.5 py-1 rounded-lg bg-white/20 text-xs font-semibold hover:bg-white/30"
+        <AnimatePresence>
+          {mapSelectionTarget && (
+            <motion.div
+              initial={{opacity: 0, y: -8}}
+              animate={{opacity: 1, y: 0}}
+              exit={{opacity: 0, y: -8}}
+              transition={{duration: 0.2, ease: [0.16, 1, 0.3, 1]}}
+              className="pointer-events-auto flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl glass-green text-white shadow-lg"
             >
-              Cancel
-            </button>
-          </div>
-        )}
+              <div className="flex items-center gap-2 text-xs font-semibold">
+                <Navigation className="w-4 h-4 shrink-0" />
+                <span>
+                  Tap anywhere on the map to set{' '}
+                  {mapSelectionTarget === 'pickup' ? 'Pickup' : 'Destination'}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={onCancelMapTap}
+                className="px-2.5 py-1 rounded-lg bg-white/20 text-xs font-semibold hover:bg-white/30 smooth-press"
+              >
+                Cancel
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
+
+      <AnimatePresence>
+        {(isSearchingPlaces || isCalculatingRoute || isLocatingGps) && (
+          <motion.div
+            initial={{opacity: 0, y: 10, scale: 0.96}}
+            animate={{opacity: 1, y: 0, scale: 1}}
+            exit={{opacity: 0, y: 8, scale: 0.96}}
+            transition={{duration: 0.2, ease: [0.16, 1, 0.3, 1]}}
+            className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 z-20 px-3.5 py-2 rounded-full bg-white/94 backdrop-blur-xl border border-[#0F522B]/15 shadow-lg flex items-center"
+          >
+            <LoadingSpinner
+              size="xs"
+              tone="green"
+              label={
+                isSearchingPlaces
+                  ? 'Searching nearby places...'
+                  : isCalculatingRoute
+                  ? 'Calculating route...'
+                  : 'Updating live GPS...'
+              }
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {useFallbackTileMap ? (
         <Interactive2026TileMap
@@ -1175,13 +1443,20 @@ export const GoogleMapsWorkspace: React.FC<GoogleMapsWorkspaceProps> = ({
         />
       ) : (
         <>
-          {!isApiLoaded && (
-            <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#F4F7F5]">
-              <div className="text-xs font-semibold text-[#0F522B] tracking-wide">
-                Initializing Google Maps...
-              </div>
-            </div>
-          )}
+          <AnimatePresence>
+            {!isApiLoaded && (
+              <motion.div
+                initial={{opacity: 1}}
+                exit={{opacity: 0}}
+                transition={{duration: 0.25}}
+                className="absolute inset-0 z-10 flex items-center justify-center bg-[#F4F7F5]"
+              >
+                <div className="px-5 py-3.5 rounded-2xl glass-surface flex items-center gap-3 shadow-md">
+                  <LoadingSpinner size="md" tone="green" label="Loading Google Maps..." />
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           <GoogleMap
             defaultCenter={userLocation}
@@ -1189,6 +1464,7 @@ export const GoogleMapsWorkspace: React.FC<GoogleMapsWorkspaceProps> = ({
             mapId="DEMO_MAP_ID"
             gestureHandling="greedy"
             disableDefaultUI={true}
+            zoomControl={false}
             onClick={handleMapClick}
             internalUsageAttributionIds={['gmp_mcp_codeassist_v1_aistudio']}
             style={{width: '100%', height: '100%'}}

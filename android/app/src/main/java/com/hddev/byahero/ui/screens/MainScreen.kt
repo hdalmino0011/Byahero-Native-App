@@ -5,6 +5,19 @@ import android.annotation.SuppressLint
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -390,6 +403,10 @@ fun MainScreen(
     var destInputQuery by remember { mutableStateOf("") }
     var inlineStopResults by remember { mutableStateOf<List<NearbySpot>>(emptyList()) }
     var isSearchingStop by remember { mutableStateOf(false) }
+    var isLocatingGps by remember { mutableStateOf(false) }
+    var isResolvingPickup by remember { mutableStateOf(false) }
+    var isResolvingDest by remember { mutableStateOf(false) }
+    var isBookingRide by remember { mutableStateOf(false) }
 
     fun applyLiveCoordinates(live: LatLng, forceAsPickup: Boolean) {
         val movedSignificantly = ByaheroNativeEngine.calculateHaversineKm(
@@ -406,17 +423,25 @@ fun MainScreen(
             val prevLabel = pickupLabel
             pickupLatLng = live
             recenterSeq++
+            isResolvingPickup = true
             scope.launch {
-                val (resolvedName, _) = PlaceSearchHelper.reverseGeocode(context, live)
-                if (forceAsPickup) {
-                    if (!trySetPickup(live, resolvedName)) {
-                        pickupLatLng = prevLatLng
-                        pickupLabel = prevLabel
+                try {
+                    val (resolvedName, _) = PlaceSearchHelper.reverseGeocode(context, live)
+                    if (forceAsPickup) {
+                        if (!trySetPickup(live, resolvedName)) {
+                            pickupLatLng = prevLatLng
+                            pickupLabel = prevLabel
+                        }
+                    } else if (!userEditedPickup) {
+                        pickupLabel = resolvedName
                     }
-                } else if (!userEditedPickup) {
-                    pickupLabel = resolvedName
+                } finally {
+                    isResolvingPickup = false
+                    isLocatingGps = false
                 }
             }
+        } else {
+            isLocatingGps = false
         }
     }
 
@@ -430,6 +455,8 @@ fun MainScreen(
             )
             return
         }
+        isLocatingGps = true
+        isResolvingPickup = true
         pickupLabel = "Locating current address..."
         val fused = LocationServices.getFusedLocationProviderClient(context)
         fused.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
@@ -686,36 +713,42 @@ fun MainScreen(
         selectedMapSpot = null
         if (targetIsPickup) {
             userEditedPickup = true
+            isResolvingPickup = true
             pickupLatLng = coords
             pickupLabel = "Resolving place name..."
         } else {
+            isResolvingDest = true
             destLatLng = coords
             destLabel = "Resolving place name..."
         }
 
         scope.launch {
-            val (resolvedName, _) = PlaceSearchHelper.reverseGeocode(context, coords)
-            if (targetIsPickup) {
-                val curDest = prevDestLatLng
-                if (curDest != null && isSameStop(coords.latitude, coords.longitude, resolvedName, curDest.latitude, curDest.longitude, prevDestLabel)) {
-                    pickupLatLng = prevPickupLatLng
-                    pickupLabel = prevPickupLabel
-                    locationError = "Pickup and destination cannot be the same location."
-                    return@launch
+            try {
+                val (resolvedName, _) = PlaceSearchHelper.reverseGeocode(context, coords)
+                if (targetIsPickup) {
+                    val curDest = prevDestLatLng
+                    if (curDest != null && isSameStop(coords.latitude, coords.longitude, resolvedName, curDest.latitude, curDest.longitude, prevDestLabel)) {
+                        pickupLatLng = prevPickupLatLng
+                        pickupLabel = prevPickupLabel
+                        locationError = "Pickup and destination cannot be the same location."
+                        return@launch
+                    }
+                    locationError = null
+                    pickupLabel = resolvedName
+                } else {
+                    if (isSameStop(coords.latitude, coords.longitude, resolvedName, prevPickupLatLng.latitude, prevPickupLatLng.longitude, prevPickupLabel)) {
+                        destLatLng = prevDestLatLng
+                        destLabel = prevDestLabel
+                        locationError = "Destination cannot be the same as your pickup location."
+                        return@launch
+                    }
+                    locationError = null
+                    destLabel = resolvedName
                 }
-                locationError = null
-                pickupLabel = resolvedName
-            } else {
-                if (isSameStop(coords.latitude, coords.longitude, resolvedName, prevPickupLatLng.latitude, prevPickupLatLng.longitude, prevPickupLabel)) {
-                    destLatLng = prevDestLatLng
-                    destLabel = prevDestLabel
-                    locationError = "Destination cannot be the same as your pickup location."
-                    return@launch
-                }
-                locationError = null
-                destLabel = resolvedName
+                fullMapExpanded = false
+            } finally {
+                if (targetIsPickup) isResolvingPickup = false else isResolvingDest = false
             }
-            fullMapExpanded = false
         }
     }
 
@@ -849,17 +882,32 @@ fun MainScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            if (selectedTab != 4) {
-            val mapWeight = when {
+            val targetMapWeight = when {
                 fullMapExpanded -> 1f
                 selectedTab == 0 || selectedTab == 1 -> 0.42f
                 else -> 0.26f
             }
+            val animatedMapWeight by animateFloatAsState(
+                targetValue = targetMapWeight,
+                animationSpec = tween(durationMillis = 220),
+                label = "map_weight_anim"
+            )
+            val targetPanelWeight = when {
+                selectedTab == 4 -> 1f
+                selectedTab == 0 || selectedTab == 1 -> 0.58f
+                else -> 0.74f
+            }
+            val animatedPanelWeight by animateFloatAsState(
+                targetValue = targetPanelWeight,
+                animationSpec = tween(durationMillis = 220),
+                label = "panel_weight_anim"
+            )
 
+            if (selectedTab != 4) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(mapWeight)
+                    .weight(animatedMapWeight.coerceAtLeast(0.05f))
             ) {
                 if (useGoogleMaps) {
                     GoogleMap(
@@ -993,21 +1041,34 @@ fun MainScreen(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(10.dp))
                                     .background(ByaheroDarkGreen)
-                                    .clickable { runTopMapSearch(mapSearchQuery) }
-                                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                                    .clickable(enabled = !isSearchingExplore) { runTopMapSearch(mapSearchQuery) }
+                                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Text(
-                                    text = "Find",
-                                    fontFamily = PoppinsFontFamily,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = ByaheroWhite
-                                )
+                                if (isSearchingExplore) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(14.dp),
+                                        strokeWidth = 2.dp,
+                                        color = ByaheroWhite
+                                    )
+                                } else {
+                                    Text(
+                                        text = "Find",
+                                        fontFamily = PoppinsFontFamily,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = ByaheroWhite
+                                    )
+                                }
                             }
                         }
                     }
 
-                    if (showMapSearchDropdown) {
+                    AnimatedVisibility(
+                        visible = showMapSearchDropdown,
+                        enter = fadeIn(tween(180)) + expandVertically(tween(180)),
+                        exit = fadeOut(tween(140)) + shrinkVertically(tween(140))
+                    ) {
                         Surface(
                             shape = RoundedCornerShape(16.dp),
                             color = ByaheroWhite,
@@ -1027,13 +1088,25 @@ fun MainScreen(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text(
-                                        text = if (isSearchingExplore) "Searching places..." else "${mapSearchDropdownResults.size} places found",
-                                        fontFamily = PoppinsFontFamily,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = ByaheroDarkGreen
-                                    )
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        if (isSearchingExplore) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(12.dp),
+                                                strokeWidth = 2.dp,
+                                                color = ByaheroDarkGreen
+                                            )
+                                        }
+                                        Text(
+                                            text = if (isSearchingExplore) "Searching places..." else "${mapSearchDropdownResults.size} places found",
+                                            fontFamily = PoppinsFontFamily,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = ByaheroDarkGreen
+                                        )
+                                    }
                                     Text(
                                         text = "Close",
                                         fontFamily = PoppinsFontFamily,
@@ -1173,7 +1246,7 @@ fun MainScreen(
                         )
                         Surface(
                             onClick = {
-                                requestFreshGpsPickup()
+                                if (!isLocatingGps) requestFreshGpsPickup()
                             },
                             shape = RoundedCornerShape(10.dp),
                             color = ByaheroDarkGreen,
@@ -1184,14 +1257,22 @@ fun MainScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(5.dp)
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.MyLocation,
-                                    contentDescription = "My GPS",
-                                    tint = ByaheroWhite,
-                                    modifier = Modifier.size(14.dp)
-                                )
+                                if (isLocatingGps) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(13.dp),
+                                        strokeWidth = 2.dp,
+                                        color = ByaheroWhite
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.MyLocation,
+                                        contentDescription = "My GPS",
+                                        tint = ByaheroWhite,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
                                 Text(
-                                    text = "My GPS",
+                                    text = if (isLocatingGps) "Locating..." else "My GPS",
                                     fontFamily = PoppinsFontFamily,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.SemiBold,
@@ -1201,7 +1282,11 @@ fun MainScreen(
                         }
                     }
 
-                    if (mapPickMode != MapPickMode.NONE) {
+                    AnimatedVisibility(
+                        visible = mapPickMode != MapPickMode.NONE,
+                        enter = fadeIn(tween(180)) + expandVertically(tween(180)),
+                        exit = fadeOut(tween(140)) + shrinkVertically(tween(140))
+                    ) {
                         Surface(
                             shape = RoundedCornerShape(12.dp),
                             color = ByaheroDarkGreen,
@@ -1324,33 +1409,80 @@ fun MainScreen(
                             }
                         }
                     }
-                    locationError?.let { errMsg ->
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = Color(0xFFDC2626),
-                            shadowElevation = 6.dp
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    AnimatedVisibility(
+                        visible = locationError != null,
+                        enter = fadeIn(tween(180)) + expandVertically(tween(180)),
+                        exit = fadeOut(tween(140)) + shrinkVertically(tween(140))
+                    ) {
+                        locationError?.let { errMsg ->
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color(0xFFDC2626),
+                                shadowElevation = 6.dp
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.ErrorOutline,
-                                    contentDescription = null,
-                                    tint = ByaheroWhite,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Text(
-                                    text = errMsg,
-                                    fontFamily = PoppinsFontFamily,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = ByaheroWhite
-                                )
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.ErrorOutline,
+                                        contentDescription = null,
+                                        tint = ByaheroWhite,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Text(
+                                        text = errMsg,
+                                        fontFamily = PoppinsFontFamily,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = ByaheroWhite
+                                    )
+                                }
                             }
+                        }
+                    }
+                }
+
+                val mapStatusText = when {
+                    isSearchingExplore -> "Searching nearby places..."
+                    isLocatingGps -> "Updating live GPS..."
+                    isResolvingPickup || isResolvingDest -> "Resolving address..."
+                    else -> null
+                }
+                AnimatedVisibility(
+                    visible = mapStatusText != null,
+                    enter = fadeIn(tween(180)),
+                    exit = fadeOut(tween(150)),
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 12.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = ByaheroGlassWhite,
+                        border = BorderStroke(1.dp, ByaheroBorder),
+                        shadowElevation = 6.dp
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(7.dp)
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(14.dp),
+                                strokeWidth = 2.dp,
+                                color = ByaheroDarkGreen
+                            )
+                            Text(
+                                text = mapStatusText ?: "",
+                                fontFamily = PoppinsFontFamily,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = ByaheroDarkGreen
+                            )
                         }
                     }
                 }
@@ -1413,13 +1545,7 @@ fun MainScreen(
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(
-                            when {
-                                selectedTab == 4 -> 1f
-                                selectedTab == 0 || selectedTab == 1 -> 0.58f
-                                else -> 0.74f
-                            }
-                        ),
+                        .weight(animatedPanelWeight.coerceAtLeast(0.05f)),
                     color = ByaheroCanvas
                 ) {
                     Column(
@@ -1429,7 +1555,21 @@ fun MainScreen(
                             .padding(horizontal = 14.dp, vertical = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        when (selectedTab) {
+                        AnimatedContent(
+                            targetState = selectedTab,
+                            transitionSpec = {
+                                (fadeIn(animationSpec = tween(200)) +
+                                    slideInVertically(animationSpec = tween(200)) { it / 18 }) togetherWith
+                                    (fadeOut(animationSpec = tween(140)) +
+                                        slideOutVertically(animationSpec = tween(140)) { -it / 24 })
+                            },
+                            label = "main_tab_content_transition"
+                        ) { activeTabIndex ->
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                        when (activeTabIndex) {
                             0 -> {
                                 Surface(
                                     shape = RoundedCornerShape(16.dp),
@@ -1611,7 +1751,13 @@ fun MainScreen(
                                                             )
                                                         }
                                                     }
-                                                    if (focusedStopField == FocusedStopField.PICKUP && pickupInputQuery.isNotEmpty()) {
+                                                    if (isResolvingPickup || (focusedStopField == FocusedStopField.PICKUP && isSearchingStop)) {
+                                                        CircularProgressIndicator(
+                                                            modifier = Modifier.size(16.dp),
+                                                            strokeWidth = 2.dp,
+                                                            color = ByaheroDarkGreen
+                                                        )
+                                                    } else if (focusedStopField == FocusedStopField.PICKUP && pickupInputQuery.isNotEmpty()) {
                                                         IconButton(
                                                             onClick = { pickupInputQuery = "" },
                                                             modifier = Modifier.size(28.dp)
@@ -1713,6 +1859,13 @@ fun MainScreen(
                                                                     }
                                                             )
                                                         }
+                                                    }
+                                                    if (isResolvingDest || (focusedStopField == FocusedStopField.DESTINATION && isSearchingStop)) {
+                                                        CircularProgressIndicator(
+                                                            modifier = Modifier.size(16.dp),
+                                                            strokeWidth = 2.dp,
+                                                            color = ByaheroDarkGreen
+                                                        )
                                                     }
                                                     if (destLatLng != null && destLabel.isNotBlank()) {
                                                         val alreadySaved = favorites.any {
@@ -2315,37 +2468,43 @@ fun MainScreen(
                                         }
 
                                         Button(
+                                            enabled = !isBookingRide,
                                             onClick = {
                                                 val d = destLatLng ?: return@Button
                                                 if (isSameStop(pickupLatLng.latitude, pickupLatLng.longitude, pickupLabel, d.latitude, d.longitude, destLabel)) {
                                                     locationError = "Pickup and destination cannot be the same location."
                                                     return@Button
                                                 }
-                                                activeRide = ActiveRide(
-                                                    id = "ride_${System.currentTimeMillis()}",
-                                                    passengerName = profile.fullName,
-                                                    vehicleType = selectedVehicle,
-                                                    pickupLabel = pickupLabel,
-                                                    pickupLat = pickupLatLng.latitude,
-                                                    pickupLng = pickupLatLng.longitude,
-                                                    destinationLabel = destLabel,
-                                                    destLat = d.latitude,
-                                                    destLng = d.longitude,
-                                                    distanceKm = routeDistanceKm,
-                                                    durationMins = durationMins,
-                                                    fare = fareQuote,
-                                                    status = RideStatus.SEARCHING,
-                                                    createdAtLabel = OrderHistoryStore.currentTimeLabel(),
-                                                    roleContext = "passenger",
-                                                    paymentMethodLabel = selectedPaymentMethod.label,
-                                                    promoCode = appliedPromoCode
-                                                )
-                                                val updatedFavs = favorites.map { f ->
-                                                    if (f.label.equals(destLabel, ignoreCase = true)) {
-                                                        f.copy(ordersCount = f.ordersCount + 1)
-                                                    } else f
+                                                isBookingRide = true
+                                                scope.launch {
+                                                    delay(280)
+                                                    activeRide = ActiveRide(
+                                                        id = "ride_${System.currentTimeMillis()}",
+                                                        passengerName = profile.fullName,
+                                                        vehicleType = selectedVehicle,
+                                                        pickupLabel = pickupLabel,
+                                                        pickupLat = pickupLatLng.latitude,
+                                                        pickupLng = pickupLatLng.longitude,
+                                                        destinationLabel = destLabel,
+                                                        destLat = d.latitude,
+                                                        destLng = d.longitude,
+                                                        distanceKm = routeDistanceKm,
+                                                        durationMins = durationMins,
+                                                        fare = fareQuote,
+                                                        status = RideStatus.SEARCHING,
+                                                        createdAtLabel = OrderHistoryStore.currentTimeLabel(),
+                                                        roleContext = "passenger",
+                                                        paymentMethodLabel = selectedPaymentMethod.label,
+                                                        promoCode = appliedPromoCode
+                                                    )
+                                                    val updatedFavs = favorites.map { f ->
+                                                        if (f.label.equals(destLabel, ignoreCase = true)) {
+                                                            f.copy(ordersCount = f.ordersCount + 1)
+                                                        } else f
+                                                    }
+                                                    updateFavoritesList(updatedFavs)
+                                                    isBookingRide = false
                                                 }
-                                                updateFavoritesList(updatedFavs)
                                             },
                                             modifier = Modifier
                                                 .fillMaxWidth()
@@ -2356,19 +2515,34 @@ fun MainScreen(
                                                 contentColor = ByaheroWhite
                                             )
                                         ) {
-                                            Text(
-                                                text = String.format(
-                                                    "Book %s (%s) · P%.2f",
-                                                    if (selectedVehicle == VehicleType.MOTORCYCLE) "Moto" else "Taxi",
-                                                    selectedPaymentMethod.label,
-                                                    fareQuote.finalFare
-                                                ),
-                                                fontFamily = PoppinsFontFamily,
-                                                fontSize = 13.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
+                                            if (isBookingRide) {
+                                                CircularProgressIndicator(
+                                                    modifier = Modifier.size(16.dp),
+                                                    strokeWidth = 2.dp,
+                                                    color = ByaheroWhite
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text(
+                                                    text = "Dispatching Rider...",
+                                                    fontFamily = PoppinsFontFamily,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            } else {
+                                                Text(
+                                                    text = String.format(
+                                                        "Book %s (%s) · P%.2f",
+                                                        if (selectedVehicle == VehicleType.MOTORCYCLE) "Moto" else "Taxi",
+                                                        selectedPaymentMethod.label,
+                                                        fareQuote.finalFare
+                                                    ),
+                                                    fontFamily = PoppinsFontFamily,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -2664,6 +2838,8 @@ fun MainScreen(
                                     onSelectTab = { selectedTab = it },
                                     onLogout = onLogout
                                 )
+                            }
+                        }
                             }
                         }
                     }
@@ -3322,7 +3498,24 @@ private fun ByaheroSettingsSection(
     var supportMessageInput by remember { mutableStateOf("") }
     var supportFeedback by remember { mutableStateOf<String?>(null) }
 
-                                if (settingsShowMenuList) {
+    AnimatedContent(
+        targetState = settingsShowMenuList,
+        transitionSpec = {
+            if (targetState) {
+                (fadeIn(tween(220)) + slideInHorizontally(tween(220)) { -it / 6 }) togetherWith
+                    (fadeOut(tween(160)) + slideOutHorizontally(tween(160)) { it / 6 })
+            } else {
+                (fadeIn(tween(220)) + slideInHorizontally(tween(220)) { it / 6 }) togetherWith
+                    (fadeOut(tween(160)) + slideOutHorizontally(tween(160)) { -it / 6 })
+            }
+        },
+        label = "settings_nav_transition"
+    ) { showingMenu ->
+                                if (showingMenu) {
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
                                     Surface(
                                         shape = RoundedCornerShape(18.dp),
                                         color = ByaheroDarkGreen
@@ -3507,7 +3700,12 @@ private fun ByaheroSettingsSection(
                                             fontWeight = FontWeight.Bold
                                         )
                                     }
+                                    }
                                 } else {
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
                                     Surface(
                                         shape = RoundedCornerShape(14.dp),
                                         color = ByaheroWhite,
@@ -4535,8 +4733,10 @@ private fun ByaheroSettingsSection(
                                             }
                                         }
                                     }
+                                    }
                                 }
                             }
+    }
 }
 
 @Composable
@@ -4895,13 +5095,25 @@ private fun ActiveRideTrackerCard(
             modifier = Modifier.padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text(
-                text = statusHeadline,
-                fontFamily = PoppinsFontFamily,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
-                color = ByaheroDarkGreen
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (ride.status == RideStatus.SEARCHING) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = ByaheroDarkGreen
+                    )
+                }
+                Text(
+                    text = statusHeadline,
+                    fontFamily = PoppinsFontFamily,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = ByaheroDarkGreen
+                )
+            }
             Text(
                 text = "${ride.pickupLabel} -> ${ride.destinationLabel}",
                 fontFamily = PoppinsFontFamily,

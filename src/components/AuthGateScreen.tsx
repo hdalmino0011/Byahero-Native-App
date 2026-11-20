@@ -1,7 +1,9 @@
 import React, {useState} from 'react';
+import {AnimatePresence, motion} from 'motion/react';
 import {Bike, Car, Eye, EyeOff, Lock, Mail, User} from 'lucide-react';
 import {UserProfile, UserRole, VehicleType} from '../types/byahero';
 import {ByaheroLogoMark, ByaheroWordmarkVector, GoogleGVectorIcon} from './VectorGraphics';
+import {LoadingSpinner} from './LoadingSpinner';
 
 interface StoredAccount {
   id: string;
@@ -103,9 +105,21 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
   const [vehicleType, setVehicleType] = useState<VehicleType>('motorcycle');
   const [plateNumber, setPlateNumber] = useState('BYH-2026');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [submittingKind, setSubmittingKind] = useState<'form' | 'google' | null>(
+    null
+  );
+
+  const completeAuth = (profile: UserProfile, kind: 'form' | 'google') => {
+    setSubmittingKind(kind);
+    window.setTimeout(() => {
+      setSubmittingKind(null);
+      onAuthenticated(profile);
+    }, 260);
+  };
 
   const handleLoginSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (submittingKind) return;
     setErrorMsg(null);
     const trimmedEmail = email.trim().toLowerCase();
     if (!trimmedEmail || !password) {
@@ -123,11 +137,12 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
       return;
     }
 
-    onAuthenticated(toUserProfile(matched));
+    completeAuth(toUserProfile(matched), 'form');
   };
 
   const handleSignUpSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (submittingKind) return;
     setErrorMsg(null);
     const trimmedName = fullName.trim();
     const trimmedEmail = email.trim().toLowerCase();
@@ -156,13 +171,15 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
     };
 
     saveAccounts([newAccount, ...accounts]);
-    onAuthenticated(toUserProfile(newAccount));
+    completeAuth(toUserProfile(newAccount), 'form');
   };
 
   const handleGoogleSignIn = () => {
+    if (submittingKind) return;
+    setErrorMsg(null);
     const accounts = loadAccounts();
     const existingGoogle = accounts.find((a) => a.email === 'alex@byahero.app');
-    onAuthenticated(toUserProfile(existingGoogle || PREDEFINED_ACCOUNTS[2]));
+    completeAuth(toUserProfile(existingGoogle || PREDEFINED_ACCOUNTS[2]), 'google');
   };
 
   return (
@@ -173,7 +190,12 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
           'radial-gradient(circle at 15% 15%, rgba(15, 82, 43, 0.14) 0%, transparent 45%), radial-gradient(circle at 85% 85%, rgba(16, 185, 129, 0.14) 0%, transparent 45%), #F4F7F5',
       }}
     >
-      <div className="w-full max-w-md glass-surface rounded-[28px] p-6 sm:p-7 space-y-5">
+      <motion.div
+        initial={{opacity: 0, y: 14, scale: 0.985}}
+        animate={{opacity: 1, y: 0, scale: 1}}
+        transition={{duration: 0.28, ease: [0.16, 1, 0.3, 1]}}
+        className="w-full max-w-md glass-surface rounded-[28px] p-6 sm:p-7 space-y-5"
+      >
         {/* Brand Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -192,11 +214,12 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
         <div className="grid grid-cols-2 gap-1 p-1 rounded-2xl bg-[#EBF1ED]/90 border border-[#0F522B]/10">
           <button
             type="button"
+            disabled={submittingKind !== null}
             onClick={() => {
               setMode('login');
               setErrorMsg(null);
             }}
-            className={`h-10 rounded-xl text-xs font-bold transition-all ${
+            className={`h-10 rounded-xl text-xs font-bold transition-all smooth-press ${
               mode === 'login'
                 ? 'bg-[#0F522B] text-white shadow-sm'
                 : 'text-[#55625A] hover:text-[#101713]'
@@ -206,11 +229,12 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
           </button>
           <button
             type="button"
+            disabled={submittingKind !== null}
             onClick={() => {
               setMode('signup');
               setErrorMsg(null);
             }}
-            className={`h-10 rounded-xl text-xs font-bold transition-all ${
+            className={`h-10 rounded-xl text-xs font-bold transition-all smooth-press ${
               mode === 'signup'
                 ? 'bg-[#0F522B] text-white shadow-sm'
                 : 'text-[#55625A] hover:text-[#101713]'
@@ -225,24 +249,33 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
           onSubmit={mode === 'login' ? handleLoginSubmit : handleSignUpSubmit}
           className="space-y-3.5"
         >
-          {mode === 'signup' && (
-            <div>
-              <label htmlFor="auth-name" className="block text-xs font-medium text-[#55625A] mb-1">
-                Full Name
-              </label>
-              <div className="flex items-center h-11 px-3.5 rounded-xl glass-subtle focus-within:border-[#0F522B]">
-                <User className="w-4 h-4 text-[#0F522B] mr-2.5 shrink-0" />
-                <input
-                  id="auth-name"
-                  type="text"
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  placeholder="Juan Dela Cruz"
-                  className="w-full bg-transparent text-sm text-[#101713] placeholder:text-[#86948C] focus:outline-none"
-                />
-              </div>
-            </div>
-          )}
+          <AnimatePresence initial={false}>
+            {mode === 'signup' && (
+              <motion.div
+                key="signup-fullname"
+                initial={{opacity: 0, height: 0}}
+                animate={{opacity: 1, height: 'auto'}}
+                exit={{opacity: 0, height: 0}}
+                transition={{duration: 0.2, ease: [0.16, 1, 0.3, 1]}}
+                className="overflow-hidden"
+              >
+                <label htmlFor="auth-name" className="block text-xs font-medium text-[#55625A] mb-1">
+                  Full Name
+                </label>
+                <div className="flex items-center h-11 px-3.5 rounded-xl glass-subtle focus-within:border-[#0F522B]">
+                  <User className="w-4 h-4 text-[#0F522B] mr-2.5 shrink-0" />
+                  <input
+                    id="auth-name"
+                    type="text"
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    placeholder="Juan Dela Cruz"
+                    className="w-full bg-transparent text-sm text-[#101713] placeholder:text-[#86948C] focus:outline-none"
+                  />
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           <div>
             <label htmlFor="auth-email" className="block text-xs font-medium text-[#55625A] mb-1">
@@ -286,86 +319,113 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
             </div>
           </div>
 
-          {mode === 'signup' && (
-            <>
-              <div>
-                <div className="text-xs font-semibold text-[#0F522B] mb-2">
-                  Select Role
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  {([
-                    {id: 'passenger', label: 'Passenger'},
-                    {id: 'rider', label: 'Rider'},
-                    {id: 'both', label: 'Both'},
-                  ] as const).map((r) => (
-                    <button
-                      key={r.id}
-                      type="button"
-                      onClick={() => setRole(r.id)}
-                      className={`h-10 rounded-xl border text-xs font-semibold transition-all ${
-                        role === r.id
-                          ? 'bg-[#0F522B] border-[#0F522B] text-white shadow-sm'
-                          : 'bg-white/70 border-[#0F522B]/15 text-[#101713] hover:border-[#0F522B]/40'
-                      }`}
-                    >
-                      {r.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {(role === 'rider' || role === 'both') && (
-                <div className="p-3 rounded-2xl glass-subtle space-y-2.5">
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setVehicleType('motorcycle')}
-                      className={`h-10 rounded-xl border flex items-center justify-center gap-1.5 text-xs font-semibold transition-all ${
-                        vehicleType === 'motorcycle'
-                          ? 'bg-[#0F522B] border-[#0F522B] text-white'
-                          : 'bg-white/80 border-[#0F522B]/15 text-[#101713]'
-                      }`}
-                    >
-                      <Bike className="w-4 h-4" />
-                      <span>Motorcycle</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setVehicleType('taxi')}
-                      className={`h-10 rounded-xl border flex items-center justify-center gap-1.5 text-xs font-semibold transition-all ${
-                        vehicleType === 'taxi'
-                          ? 'bg-[#0F522B] border-[#0F522B] text-white'
-                          : 'bg-white/80 border-[#0F522B]/15 text-[#101713]'
-                      }`}
-                    >
-                      <Car className="w-4 h-4" />
-                      <span>Taxi</span>
-                    </button>
+          <AnimatePresence initial={false}>
+            {mode === 'signup' && (
+              <motion.div
+                key="signup-role"
+                initial={{opacity: 0, height: 0}}
+                animate={{opacity: 1, height: 'auto'}}
+                exit={{opacity: 0, height: 0}}
+                transition={{duration: 0.22, ease: [0.16, 1, 0.3, 1]}}
+                className="overflow-hidden space-y-3.5"
+              >
+                <div>
+                  <div className="text-xs font-semibold text-[#0F522B] mb-2">
+                    Select Role
                   </div>
-                  <input
-                    type="text"
-                    value={plateNumber}
-                    onChange={(e) => setPlateNumber(e.target.value.toUpperCase())}
-                    placeholder="Plate Number (e.g. BYH-2026)"
-                    aria-label="Vehicle plate number"
-                    className="w-full h-10 px-3 rounded-xl bg-white/90 border border-[#0F522B]/15 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
-                  />
+                  <div className="grid grid-cols-3 gap-2">
+                    {([
+                      {id: 'passenger', label: 'Passenger'},
+                      {id: 'rider', label: 'Rider'},
+                      {id: 'both', label: 'Both'},
+                    ] as const).map((r) => (
+                      <button
+                        key={r.id}
+                        type="button"
+                        onClick={() => setRole(r.id)}
+                        className={`h-10 rounded-xl border text-xs font-semibold transition-all smooth-press ${
+                          role === r.id
+                            ? 'bg-[#0F522B] border-[#0F522B] text-white shadow-sm'
+                            : 'bg-white/70 border-[#0F522B]/15 text-[#101713] hover:border-[#0F522B]/40'
+                        }`}
+                      >
+                        {r.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              )}
-            </>
-          )}
 
-          {errorMsg && (
-            <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
-              {errorMsg}
-            </p>
-          )}
+                {(role === 'rider' || role === 'both') && (
+                  <div className="p-3 rounded-2xl glass-subtle space-y-2.5">
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setVehicleType('motorcycle')}
+                        className={`h-10 rounded-xl border flex items-center justify-center gap-1.5 text-xs font-semibold transition-all smooth-press ${
+                          vehicleType === 'motorcycle'
+                            ? 'bg-[#0F522B] border-[#0F522B] text-white'
+                            : 'bg-white/80 border-[#0F522B]/15 text-[#101713]'
+                        }`}
+                      >
+                        <Bike className="w-4 h-4" />
+                        <span>Motorcycle</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setVehicleType('taxi')}
+                        className={`h-10 rounded-xl border flex items-center justify-center gap-1.5 text-xs font-semibold transition-all smooth-press ${
+                          vehicleType === 'taxi'
+                            ? 'bg-[#0F522B] border-[#0F522B] text-white'
+                            : 'bg-white/80 border-[#0F522B]/15 text-[#101713]'
+                        }`}
+                      >
+                        <Car className="w-4 h-4" />
+                        <span>Taxi</span>
+                      </button>
+                    </div>
+                    <input
+                      type="text"
+                      value={plateNumber}
+                      onChange={(e) => setPlateNumber(e.target.value.toUpperCase())}
+                      placeholder="Plate Number (e.g. BYH-2026)"
+                      aria-label="Vehicle plate number"
+                      className="w-full h-10 px-3 rounded-xl bg-white/90 border border-[#0F522B]/15 text-xs text-[#101713] focus:outline-none focus:border-[#0F522B]"
+                    />
+                  </div>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <AnimatePresence>
+            {errorMsg && (
+              <motion.p
+                initial={{opacity: 0, y: -4}}
+                animate={{opacity: 1, y: 0}}
+                exit={{opacity: 0, y: -4}}
+                transition={{duration: 0.18}}
+                className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5"
+              >
+                {errorMsg}
+              </motion.p>
+            )}
+          </AnimatePresence>
 
           <button
             type="submit"
-            className="w-full h-12 rounded-xl bg-[#0F522B] hover:bg-[#146C3A] text-white text-sm font-bold shadow-md transition-colors"
+            disabled={submittingKind !== null}
+            className="w-full h-12 rounded-xl bg-[#0F522B] hover:bg-[#146C3A] disabled:opacity-75 text-white text-sm font-bold shadow-md transition-colors flex items-center justify-center gap-2 smooth-press"
           >
-            {mode === 'login' ? 'Log In' : 'Create Account'}
+            {submittingKind === 'form' ? (
+              <>
+                <LoadingSpinner size="xs" tone="white" />
+                <span>{mode === 'login' ? 'Signing In...' : 'Creating Account...'}</span>
+              </>
+            ) : mode === 'login' ? (
+              'Log In'
+            ) : (
+              'Create Account'
+            )}
           </button>
         </form>
 
@@ -378,13 +438,23 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({
         {/* Google Sign-In */}
         <button
           type="button"
+          disabled={submittingKind !== null}
           onClick={handleGoogleSignIn}
-          className="w-full h-11 rounded-xl bg-white/95 hover:bg-white border border-[#0F522B]/15 text-[#101713] text-xs font-bold flex items-center justify-center gap-2.5 shadow-sm transition-colors"
+          className="w-full h-11 rounded-xl bg-white/95 hover:bg-white disabled:opacity-75 border border-[#0F522B]/15 text-[#101713] text-xs font-bold flex items-center justify-center gap-2.5 shadow-sm transition-colors smooth-press"
         >
-          <GoogleGVectorIcon className="w-4 h-4" />
-          <span>Continue with Google</span>
+          {submittingKind === 'google' ? (
+            <>
+              <LoadingSpinner size="xs" tone="green" />
+              <span>Connecting Google Account...</span>
+            </>
+          ) : (
+            <>
+              <GoogleGVectorIcon className="w-4 h-4" />
+              <span>Continue with Google</span>
+            </>
+          )}
         </button>
-      </div>
+      </motion.div>
     </div>
   );
 };
